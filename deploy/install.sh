@@ -25,6 +25,9 @@ python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/python" -m playwright install --with-deps chromium
 chown -R "$APP_USER": "$APP_DIR" "$DATA_DIR"
 
+mkdir -p /etc/lucidarr
+[ -f /etc/lucidarr/config.ini ] || install -m 640 -o root -g "$APP_USER" "$APP_DIR/config.ini.example" /etc/lucidarr/config.ini
+sed -i "s|^download_dir = /data/lucidarr_downloads|download_dir = $STAGING|" /etc/lucidarr/config.ini
 [ -f /etc/lucidarr.env ] || install -m 640 -o root -g "$APP_USER" "$APP_DIR/deploy/lucidarr.env.example" /etc/lucidarr.env
 install -m 644 "$APP_DIR/deploy/lucidarr.service" /etc/systemd/system/lucidarr.service
 sed -i "s|@STAGING@|$STAGING|g; s|@USER@|$APP_USER|g" /etc/systemd/system/lucidarr.service
@@ -33,12 +36,11 @@ systemctl daemon-reload
 cat <<MSG
 
 Installed. Next:
-  1. Edit /etc/lucidarr.env  (Lidarr URL + API key)
+  1. Edit /etc/lucidarr/config.ini  (Lidarr host_url + api_key; interval: /etc/lucidarr.env)
   2. Make sure $STAGING is writable by '$APP_USER' and readable/movable by Lidarr
-     (same path in both LXCs, or set LIDARR_REMOTE_DIR in the env file).
+     (same path in both LXCs, or set [Lidarr] download_dir in config.ini).
   3. Test one album as the service user:
-       sudo -u $APP_USER bash -c 'set -a; . /etc/lucidarr.env; set +a; \\
-         LUCIDADL_HOME=$DATA_DIR/data xvfb-run -a $APP_DIR/.venv/bin/lucida lucidarr \\
-         --download-dir $STAGING --limit 1'
+       sudo -u $APP_USER bash -c 'LUCIDARR_CONFIG=/etc/lucidarr/config.ini LUCIDADL_HOME=$DATA_DIR/data xvfb-run -a $APP_DIR/.venv/bin/lucida lucidarr \\
+         --limit 1'
   4. systemctl enable --now lucidarr && journalctl -fu lucidarr
 MSG

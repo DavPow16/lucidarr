@@ -1,0 +1,58 @@
+# lucidarr config — modelled on Soularr's config.ini.
+# Copy to config.ini (next to where you run lucida), or set LUCIDARR_CONFIG / --config.
+# Command-line options and env vars override anything here.
+# Lists are comma-separated with no spaces around the commas.
+
+[Lidarr]
+# Lidarr > Settings > General > Security.
+api_key = yourlidarrapikeygoeshere
+# URL lucidarr uses to reach Lidarr.
+host_url = http://lidarr:8686
+# The staging folder (see [Lucida] download_dir) as LIDARR sees it. Leave empty when
+# both use the same path.
+download_dir =
+# If True, lucidarr downloads but Lidarr is not asked to import (files stay in staging).
+disable_sync = False
+
+# Replaces Soularr's [Slskd]: lucida.to is the download source.
+[Lucida]
+# Local staging folder lucidarr downloads into (one sub-folder per album).
+# Empty = <music folder>/.lidarr
+download_dir = /data/lucidarr_downloads
+# qobuz, amazon or grilledcheese. Falls back to the others when nothing matches.
+service = qobuz
+country =
+# Parallel track downloads.
+jobs = 3
+# Convert locally before import: mp3, aac, opus, ogg, wav or flac. Empty = keep source.
+convert_to =
+bitrate =
+# Off-screen browser window when a Cloudflare re-check is needed.
+hidden = False
+# Maximum seconds to wait for Lidarr's import scan, to prevent infinite hangs.
+import_timeout = 300
+
+# Soularr's [Release Settings] (accepted_countries/formats, multi-disc) have no
+# equivalent: lucida.to serves a single release per album.
+
+[Search Settings]
+# Lidarr source: missing or cutoff_unmet.
+search_source = missing
+# all = every wanted album; first_page = always the first page; incrementing_page =
+# start at the first page and move on each run.
+search_type = incrementing_page
+# Albums processed per run (also the page size).
+number_of_albums_to_grab = 10
+# Unmonitor an album in Lidarr when nothing could be downloaded; it is also logged to
+# failure_list.txt in the app data folder.
+remove_wanted_on_failure = False
+# Hours before an album that failed is attempted again (0 = every run).
+retry_after_hours = 24
+# Skip wanted albums whose title contains any of these words. Case-insensitive.
+title_blacklist = Word1,word2
+
+[Logging]
+# Passed to Python's logging.basicConfig().
+level = INFO
+format = [%(levelname)s|%(module)s|L%(lineno)d] %(asctime)s: %(message)s
+datefmt = %Y-%m-%dT%H:%M:%S%z

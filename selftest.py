@@ -1176,6 +1176,46 @@ async def _lidarr_flow():
 
 
 check("lidarr: paged wanted + import scan", _aio.run(_lidarr_flow()) == (2, "completed"))
+
+# Soularr-style config.ini
+import logging as _lg
+with _tmp2.TemporaryDirectory() as _d:
+    _cfgp = _os2.path.join(_d, "config.ini")
+    open(_cfgp, "w").write(
+        "[Lidarr]\napi_key = k\nhost_url = http://l:8686\ndownload_dir = /remote\n"
+        "disable_sync = True\n[Lucida]\nservice = amazon\njobs = 5\n"
+        "[Search Settings]\nsearch_source = cutoff_unmet\nsearch_type = first_page\n"
+        "number_of_albums_to_grab = 4\ntitle_blacklist = Live,Remix\n"
+        "remove_wanted_on_failure = True\n"
+        "[Logging]\nformat = %(message)s\n")
+    _s = _ld.resolve(_ld.load_config(_cfgp), {})
+    check("config: sections map to settings",
+          (_s.url, _s.api_key, _s.remote_dir, _s.service, _s.jobs, _s.limit) ==
+          ("http://l:8686", "k", "/remote", "amazon", 5, 4))
+    check("config: flags and enums", _s.disable_sync and _s.cutoff and _s.remove_on_failure
+          and _s.search_type == "first_page")
+    check("config: literal % in log format kept", _s.log_format == "%(message)s")
+    check("config: blacklist lowercased", _s.blacklist == ["live", "remix"])
+    _o = _ld.resolve(_ld.load_config(_cfgp), {"service": "qobuz", "limit": 9, "hidden": True})
+    check("config: CLI override beats file",
+          (_o.service, _o.limit, _o.hidden, _o.jobs) == ("qobuz", 9, True, 5))
+    _dflt = _ld.resolve(_ld.load_config(None), {})
+    check("config: defaults match Soularr style",
+          (_dflt.search_type, _dflt.limit, _dflt.retry_after, _dflt.log_level) ==
+          ("incrementing_page", 10, 24.0, "INFO"))
+    try:
+        _ld.resolve(_ld.load_config(None), {"search_type": "bogus"})
+        _bad = False
+    except _ld.LidarrError:
+        _bad = True
+    check("config: invalid search_type rejected", _bad)
+    check("config: find_config explicit", _ld.find_config(_cfgp) == _cfgp)
+    check("blacklist matches title", _ld.blacklisted({"title": "Live at X"}, ["live"])
+          and not _ld.blacklisted({"title": "Studio"}, ["live"]))
+    _st2 = _ld.AttemptState(_os2.path.join(_d, "p.json"))
+    check("incrementing page starts at 1 and wraps",
+          _st2.next_page(3) == 1 and (_st2.set_page(3) or _st2.next_page(3)) == 3
+          and (_st2.set_page(9) or _st2.next_page(3)) == 1)
 check("cli: lucidarr command + soularr alias registered",
       "lucidarr" in _cli.cli.commands and "soularr" in _cli.cli.commands)
 

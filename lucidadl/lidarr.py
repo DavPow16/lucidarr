@@ -15,9 +15,11 @@ existing lucidadl pipeline, driven from ``cli.soularr_cmd``.
 from __future__ import annotations
 
 import asyncio
+import configparser
 import json
 import os
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -31,6 +33,133 @@ _DONE_STATES = {"completed", "failed", "aborted", "cancelled", "orphaned"}
 
 class LidarrError(Exception):
     pass
+
+
+# --- Soularr-style config.ini -------------------------------------------------
+
+DEFAULT_LOG_FORMAT = "[%(levelname)s|%(module)s|L%(lineno)d] %(asctime)s: %(message)s"
+DEFAULT_DATEFMT = "%Y-%m-%dT%H:%M:%S%z"
+FAILURE_LIST_PATH = str(paths.DATA_DIR / "failure_list.txt")
+
+DEFAULTS: Dict[str, Dict[str, str]] = {
+    "Lidarr": {"api_key": "", "host_url": "http://localhost:8686",
+               "download_dir": "", "disable_sync": "False"},
+    "Lucida": {"download_dir": "", "service": "qobuz", "country": "", "jobs": "3",
+               "convert_to": "", "bitrate": "", "hidden": "False",
+               "import_timeout": "300"},
+    "Search Settings": {"search_source": "missing", "search_type": "incrementing_page",
+                        "number_of_albums_to_grab": "10",
+                        "remove_wanted_on_failure": "False",
+                        "retry_after_hours": "24", "title_blacklist": ""},
+    "Logging": {"level": "INFO", "format": DEFAULT_LOG_FORMAT,
+                "datefmt": DEFAULT_DATEFMT},
+}
+
+
+def find_config(explicit: Optional[str] = None) -> Optional[str]:
+    """--config, $LUCIDARR_CONFIG, ./config.ini, then <app data>/config.ini."""
+    for cand in (explicit, os.environ.get("LUCIDARR_CONFIG"),
+                 os.path.join(os.getcwd(), "config.ini"),
+                 str(paths.DATA_DIR / "config.ini")):
+        if cand and os.path.isfile(cand):
+            return cand
+    return None
+
+
+def load_config(path: Optional[str] = None) -> configparser.ConfigParser:
+    """Defaults overlaid with a Soularr-style config.ini (``%`` is literal in it)."""
+    cp = configparser.ConfigParser(interpolation=None)
+    cp.read_dict(DEFAULTS)
+    if path:
+        cp.read(path, encoding="utf-8")
+    return cp
+
+
+def _csv(value: str) -> List[str]:
+    return [v.strip() for v in (value or "").split(",") if v.strip()]
+
+
+@dataclass
+class Settings:
+    url: str
+    api_key: str
+    download_dir: str
+    remote_dir: str
+    disable_sync: bool
+    service: str
+    country: Optional[str]
+    jobs: int
+    to_fmt: Optional[str]
+    bitrate: Optional[str]
+    hidden: bool
+    import_timeout: int
+    cutoff: bool
+    search_type: str
+    limit: int
+    remove_on_failure: bool
+    retry_after: float
+    blacklist: List[str]
+    interval: int
+    log_level: str
+    log_format: str
+    log_datefmt: str
+
+
+def resolve(cp: configparser.ConfigParser, o: Dict[str, Any]) -> Settings:
+    """Precedence: command-line/env override (non-None) > config.ini > default."""
+    def pick(key, section, name, conv=str):
+        v = o.get(key)
+        if v is None:
+            v = cp.get(section, name, fallback=DEFAULTS[section][name])
+        return conv(v)
+
+    def boolean(v):
+        return v if isinstance(v, bool) else str(v).strip().lower() in ("1", "true", "yes", "on")
+
+    source = pick("source", "Search Settings", "search_source").strip().lower()
+    stype = pick("search_type", "Search Settings", "search_type").strip().lower()
+    if stype not in ("all", "first_page", "incrementing_page"):
+        raise LidarrError(f"search_type must be all, first_page or incrementing_page "
+                          f"(got {stype!r}).")
+    if source not in ("missing", "cutoff_unmet"):
+        raise LidarrError(f"search_source must be missing or cutoff_unmet (got {source!r}).")
+    return Settings(
+        url=pick("url", "Lidarr", "host_url"),
+        api_key=pick("api_key", "Lidarr", "api_key"),
+        download_dir=pick("download_dir", "Lucida", "download_dir"),
+        remote_dir=pick("remote_dir", "Lidarr", "download_dir"),
+        disable_sync=pick("disable_sync", "Lidarr", "disable_sync", boolean),
+        service=pick("service", "Lucida", "service"),
+        country=pick("country", "Lucida", "country") or None,
+        jobs=pick("jobs", "Lucida", "jobs", int),
+        to_fmt=pick("to_fmt", "Lucida", "convert_to") or None,
+        bitrate=pick("bitrate", "Lucida", "bitrate") or None,
+        hidden=pick("hidden", "Lucida", "hidden", boolean),
+        import_timeout=pick("import_timeout", "Lucida", "import_timeout", int),
+        cutoff=source == "cutoff_unmet",
+        search_type=stype,
+        limit=pick("limit", "Search Settings", "number_of_albums_to_grab", int),
+        remove_on_failure=pick("remove_on_failure", "Search Settings",
+                               "remove_wanted_on_failure", boolean),
+        retry_after=pick("retry_after", "Search Settings", "retry_after_hours", float),
+        blacklist=[w.lower() for w in _csv(pick("blacklist", "Search Settings",
+                                                "title_blacklist"))],
+        interval=int(o.get("interval") or 0),
+        log_level=pick("log_level", "Logging", "level").upper(),
+        log_format=pick("log_format", "Logging", "format"),
+        log_datefmt=pick("log_datefmt", "Logging", "datefmt"),
+    )
+
+
+def blacklisted(album: Dict[str, Any], words: List[str]) -> bool:
+    """Case-insensitive title_blacklist check against the wanted album's title."""
+    title = (album.get("title") or "").lower()
+    return any(w in title for w in words)
+
+
+def log_failure(query: str, path: str = FAILURE_LIST_PATH) -> None:
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(f"{query}\n")
 
 
 # --- pure helpers -------------------------------------------------------------
@@ -102,6 +231,15 @@ class AttemptState:
                                     "at": time.time() if now is None else now}
         self.save()
 
+    def next_page(self, total_pages: int) -> int:
+        """Soularr's incrementing_page: current page, wrapping at the last one."""
+        page = int((self.data.get("_meta") or {}).get("page", 1))
+        return page if 1 <= page <= max(1, total_pages) else 1
+
+    def set_page(self, page: int) -> None:
+        self.data["_meta"] = {"page": page}
+        self.save()
+
     def forget(self, album_id: int) -> None:
         if self.data.pop(str(album_id), None) is not None:
             self.save()
@@ -160,6 +298,18 @@ class LidarrClient:
             if not records or len(out) >= int(data.get("totalRecords") or 0):
                 return out
             page += 1
+
+    async def wanted_page(self, cutoff: bool, page: int, page_size: int
+                          ) -> Dict[str, Any]:
+        kind = "cutoff" if cutoff else "missing"
+        return await self._request("GET", f"/wanted/{kind}", params={
+            "page": page, "pageSize": page_size, "monitored": "true",
+            "includeArtist": "true", "sortKey": "albums.releaseDate",
+            "sortDirection": "descending"})
+
+    async def unmonitor(self, album_id: int) -> None:
+        await self._request("PUT", "/album/monitor",
+                            json={"albumIds": [album_id], "monitored": False})
 
     async def import_folder(self, remote_path: str, wait: float = 300.0,
                             poll: float = 3.0) -> str:
