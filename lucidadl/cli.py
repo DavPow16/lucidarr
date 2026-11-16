@@ -950,8 +950,13 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
                 continue
             stage = lidarr.staging_dir(cfg.download_dir, album)
             partial = False
+            if lidarr.audio_dirs(stage) and not lidarr.is_complete(stage):
+                # An interrupted download: never import half an album or download on top.
+                log.warning("Discarding an incomplete earlier download of %s", query)
+                if os.path.abspath(stage).startswith(root + os.sep):
+                    shutil.rmtree(stage, ignore_errors=True)
             if lidarr.audio_dirs(stage):
-                # Left over from an earlier attempt: re-scan it, never download on top.
+                # A finished download Lidarr did not take: re-scan it, don't download again.
                 log.info("Re-scanning files staged earlier: %s", query)
             else:
                 log.info("Fetching: %s", query)
@@ -976,6 +981,8 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
                 lucida_ok = True
                 await settle()
                 partial = result[0]["fail"] > 0
+                if not partial:
+                    lidarr.mark_complete(stage)
             if cfg.disable_sync:
                 log.info("disable_sync: left in %s for manual import", stage)
                 attempts.record(aid, query, "staged")

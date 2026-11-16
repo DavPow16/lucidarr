@@ -48,7 +48,7 @@ DEFAULTS: Dict[str, Dict[str, str]] = {
                "download_dir": "", "disable_sync": "False", "import_method": "auto"},
     "Lucida": {"download_dir": "", "service": "qobuz", "country": "", "jobs": "3",
                "convert_to": "", "bitrate": "", "hidden": "False",
-               "import_timeout": "300"},
+               "import_timeout": "900"},
     "Search Settings": {"search_source": "missing", "search_type": "incrementing_page",
                         "number_of_albums_to_grab": "10",
                         "remove_wanted_on_failure": "False",
@@ -211,6 +211,23 @@ def audio_dirs(root: str) -> List[str]:
         if any(f.lower().endswith(AUDIO_EXTS) for f in files):
             found.append(folder)
     return sorted(found)
+
+
+COMPLETE_MARKER = ".lucidarr-complete"
+
+
+def mark_complete(stage: str) -> None:
+    """Written once every track of the album downloaded, so an interrupted download is
+    never mistaken for a finished one on the next run."""
+    try:
+        with open(os.path.join(stage, COMPLETE_MARKER), "w", encoding="utf-8") as f:
+            f.write(str(int(time.time())))
+    except OSError:
+        pass
+
+
+def is_complete(stage: str) -> bool:
+    return os.path.isfile(os.path.join(stage, COMPLETE_MARKER))
 
 
 def prune_empty(root: str) -> None:

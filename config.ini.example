@@ -35,7 +35,7 @@ bitrate =
 # Off-screen browser window when a Cloudflare re-check is needed.
 hidden = False
 # Maximum seconds to wait for Lidarr's import scan, to prevent infinite hangs.
-import_timeout = 300
+import_timeout = 900
 
 # Soularr's [Release Settings] (accepted_countries/formats, multi-disc) have no
 # equivalent: lucida.to serves a single release per album.

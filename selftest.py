@@ -1301,6 +1301,34 @@ check("cycle: failure before a success is settled and unmonitored once lucida pr
       _fl.unmonitored == [1] and "1" in _st.data and _stats["imported"] == 1)
 _stats, _fl, _calls, _st, _ = _cycle([_alb(1)], [(2, 1)])
 check("cycle: partial album is not imported", not _fl.imports and _st.data["1"]["result"] == "partial")
+# an interrupted earlier download (audio staged, no completion marker) is discarded, then fetched fresh
+def _cycle_pre(prefill_complete):
+    with _tmp2.TemporaryDirectory() as d:
+        cfg = _ld.resolve(_ld.load_config(None), {"limit": 10, "search_type": "first_page",
+                                                  "retry_after": 24})
+        cfg.download_dir = d
+        _FakeLidarr.albums = [_alb(1)]
+        _FakeLidarr.import_effect = [lambda path: [_os2.remove(_os2.path.join(r, f))
+                                      for r, _, fs in _os2.walk(path) for f in fs]]
+        stage = _ld.staging_dir(d, _alb(1))
+        _os2.makedirs(stage + "/Artists/A/B")
+        open(stage + "/Artists/A/B/old.flac", "w").close()
+        if prefill_complete:
+            _ld.mark_complete(stage)
+        calls = []
+        async def fake_run(items, kind, svc, cc, ds, out, *a, **k):
+            calls.append(1)
+            _os2.makedirs(out + "/Artists/A/B", exist_ok=True)
+            open(out + "/Artists/A/B/new.flac", "w").close()
+            return {"ok": 1, "skip": 0, "fail": 0}, []
+        _FakeLidarr.instances.clear()
+        with _p2.object(_ld, "LidarrClient", _FakeLidarr), _p2.object(_cli, "_run", fake_run), \
+             _p2.object(_cli, "load_clearance", lambda: (None, "ua")), \
+             _p2.object(_ld, "AttemptState", lambda: _RealState(d + "/st.json")):
+            _aio.run(_cli._lucidarr_cycle(cfg))
+        return len(calls), len(_FakeLidarr.instances[0].imports)
+check("cycle: incomplete staged download is discarded and re-downloaded", _cycle_pre(False) == (1, 1))
+check("cycle: complete staged download is re-scanned without downloading", _cycle_pre(True) == (0, 1))
 _stats, _fl, _calls, _st, _ = _cycle([_alb(1)], [(3, 0)], disable_sync=True)
 check("cycle: disable_sync records 'staged', no import",
       not _fl.imports and _st.data["1"]["result"] == "staged")
