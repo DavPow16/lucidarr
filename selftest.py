@@ -1425,6 +1425,17 @@ async def _manual_flow(items_empty=False):
         await c.aclose()
 
 _mi = _aio.run(_manual_flow())
+check("release folder name follows Soularr's 'Artist - Title (Year)'",
+      _ld.release_folder_name({"title": "Disco/very", "artist": {"artistName": "Daft Punk"},
+                               "releaseDate": "2001-03-12T00:00:00Z"}) == "Daft Punk - Disco_very (2001)"
+      and _ld.release_folder_name(_alb(1)) == "A - T1")
+with _tmp2.TemporaryDirectory() as _td:
+    from mutagen.easyid3 import EasyID3 as _E3
+    _mp3 = _os2.path.join(_td, "01.mp3"); open(_mp3, "wb").close()
+    _bad = _os2.path.join(_td, "02.flac"); open(_bad, "wb").close()   # not real audio
+    check("tag_files: sets albumartist/album, skips unreadable files",
+          _ld.tag_files(_td, "Tom Cardy", "Dancefloor") == 1
+          and _E3(_mp3)["albumartist"] == ["Tom Cardy"] and _E3(_mp3)["album"] == ["Dancefloor"])
 check("manual import: imports only files matched to the wanted album",
       _mi[0] == "completed" and _mi[1] == 2 and _mi[2] == 4)
 check("manual import: payload carries ids, quality and move mode",
@@ -1439,8 +1450,8 @@ _before = len(_posted)
 _mi2 = _aio.run(_manual_flow(items_empty=True))
 check("manual import: nothing matched -> 'unmatched', no command posted",
       _mi2[0] == "unmatched" and len(_posted) == _before)
-check("config: import_method defaults to manual and rejects junk",
-      _ld.resolve(_ld.load_config(None), {}).import_method == "manual")
+check("config: import_method defaults to auto",
+      _ld.resolve(_ld.load_config(None), {}).import_method == "auto")
 try:
     _ld.resolve(_ld.load_config(None), {"import_method": "nope"}); _imok = False
 except _ld.LidarrError:

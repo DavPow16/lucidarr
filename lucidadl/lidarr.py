@@ -45,7 +45,7 @@ FAILURE_LIST_PATH = str(paths.DATA_DIR / "failure_list.txt")
 
 DEFAULTS: Dict[str, Dict[str, str]] = {
     "Lidarr": {"api_key": "", "host_url": "http://localhost:8686",
-               "download_dir": "", "disable_sync": "False", "import_method": "manual"},
+               "download_dir": "", "disable_sync": "False", "import_method": "auto"},
     "Lucida": {"download_dir": "", "service": "qobuz", "country": "", "jobs": "3",
                "convert_to": "", "bitrate": "", "hidden": "False",
                "import_timeout": "300"},
@@ -139,8 +139,8 @@ def _resolve(cp: configparser.ConfigParser, o: Dict[str, Any]) -> Settings:
     if stype not in ("all", "first_page", "incrementing_page"):
         raise LidarrError(f"search_type must be all, first_page or incrementing_page "
                           f"(got {stype!r}).")
-    if pick("import_method", "Lidarr", "import_method").strip().lower() not in ("manual", "scan"):
-        raise LidarrError("import_method must be manual or scan.")
+    if pick("import_method", "Lidarr", "import_method").strip().lower() not in ("auto", "scan", "manual"):
+        raise LidarrError("import_method must be auto, scan or manual.")
     if source not in ("missing", "cutoff_unmet"):
         raise LidarrError(f"search_source must be missing or cutoff_unmet (got {source!r}).")
     return Settings(
@@ -218,6 +218,50 @@ def prune_empty(root: str) -> None:
     other non-audio files go with it; a folder that still has audio is never touched."""
     if os.path.isdir(root) and not audio_dirs(root):
         shutil.rmtree(root, ignore_errors=True)
+
+
+def release_folder_name(album: Dict[str, Any]) -> str:
+    """Soularr's recipe: ``Artist - Title (Year)``. Lidarr's folder parser needs the year
+    to read the artist out of the folder name."""
+    name = album_query(album)
+    year = str(album.get("releaseDate") or "")[:4]
+    if year.isdigit():
+        name += f" ({year})"
+    return utils.sanitize(name)
+
+
+def tag_files(folder: str, artist: str, album_title: str) -> int:
+    """Set albumartist/album on every audio file to Lidarr's own values (as Soularr does),
+    so Lidarr matches them to the wanted album. Returns how many files were tagged;
+    a file that cannot be tagged is skipped, never fatal."""
+    tagged = 0
+    try:
+        from mutagen import File as MutagenFile
+        from mutagen.easyid3 import EasyID3
+    except Exception:
+        return 0
+    for name in sorted(os.listdir(folder)):
+        path = os.path.join(folder, name)
+        if not name.lower().endswith(AUDIO_EXTS) or not os.path.isfile(path):
+            continue
+        try:
+            if name.lower().endswith(".mp3"):
+                try:
+                    tags = EasyID3(path)
+                except Exception:
+                    tags = EasyID3()
+                tags["albumartist"], tags["album"] = artist, album_title
+                tags.save(path)
+            else:
+                f = MutagenFile(path, easy=True)
+                if f is None:
+                    continue
+                f["albumartist"], f["album"] = [artist], [album_title]
+                f.save()
+            tagged += 1
+        except Exception:
+            continue
+    return tagged
 
 
 def consolidate(stage: str, folder_name: str) -> str:

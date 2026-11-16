@@ -13,10 +13,11 @@ host_url = http://lidarr:8686
 download_dir =
 # If True, lucidarr downloads but Lidarr is not asked to import (files stay in staging).
 disable_sync = False
-# manual = Lidarr's Manual Import API: matches the files to the wanted album and imports
-# them (reliable). scan = DownloadedAlbumsScan, where Lidarr guesses the artist from the
-# folder name and often fails.
-import_method = manual
+# How Lidarr is told to import. scan = DownloadedAlbumsScan on a folder named
+# "Artist - Album (Year)" with tags set like Soularr does. manual = Lidarr's Manual Import
+# API (matches files to the wanted album, reports per-file rejection reasons).
+# auto = scan first, then Manual Import if files were left behind.
+import_method = auto
 
 # Replaces Soularr's [Slskd]: lucida.to is the download source.
 [Lucida]

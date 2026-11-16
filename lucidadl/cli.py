@@ -988,15 +988,22 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
                 attempts.record(aid, query, "partial")
                 stats["failed"] += 1
                 continue
-            # Lidarr identifies the artist from the scanned folder's NAME, so hand it one
-            # folder called "<Artist> - <Album>" (Lidarr's own spelling) holding every file.
+            # Soularr's recipe: one folder named "Artist - Title (Year)" (Lidarr reads the
+            # artist from the folder name) with albumartist/album tags set to Lidarr's own.
             try:
+                artist_name = (album.get("artist") or {}).get("artistName") or ""
                 folder = await asyncio.to_thread(lidarr.consolidate, stage,
-                                                 utils.sanitize(query))
+                                                 lidarr.release_folder_name(album))
+                await asyncio.to_thread(lidarr.tag_files, folder, artist_name,
+                                        album.get("title") or "")
                 remote = lidarr.map_path(folder, cfg.download_dir, cfg.remote_dir or None)
-                if cfg.import_method == "scan":
+                status = "completed"
+                if cfg.import_method in ("auto", "scan"):
                     status = await client.import_folder(remote, wait=cfg.import_timeout)
-                else:
+                if cfg.import_method == "manual" or (
+                        cfg.import_method == "auto" and lidarr.audio_dirs(stage)):
+                    if cfg.import_method == "auto":
+                        log.info("Scan left files behind; trying Manual Import for %s", query)
                     artist_id = album.get("artistId") or (album.get("artist") or {}).get("id")
                     status, done, seen, reasons = await client.manual_import(
                         remote, artist_id, aid, wait=cfg.import_timeout, replace=cfg.cutoff)
@@ -1037,8 +1044,8 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
               help="Override [Lucida] download_dir: local staging folder.")
 @click.option("--remote-dir", envvar="LIDARR_REMOTE_DIR", default=None,
               help="Override [Lidarr] download_dir: the staging folder as Lidarr sees it.")
-@click.option("--import-method", "import_method", type=click.Choice(["manual", "scan"]),
-              default=None, help="Override [Lidarr] import_method.")
+@click.option("--import-method", "import_method", type=click.Choice(["auto", "scan", "manual"]),
+              default=None, help="Override [Lidarr] import_method (auto tries the scan, then Manual Import).")
 @click.option("--cutoff", "source", flag_value="cutoff_unmet", default=None,
               help="Use cutoff-unmet albums (search_source).")
 @click.option("--limit", type=click.IntRange(1), default=None,
