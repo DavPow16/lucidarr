@@ -8,12 +8,14 @@
 Opens a real Chromium window, lets Cloudflare's check pass (click it if it asks), then
 saves the clearance as JSON and/or uploads it to a lucidarr server.
 
-    uv run lucida_token.py                       # needs only: uv
-    python lucida_token.py                       # needs: pip install playwright
+    python lucida_token.py                       # first run offers to set itself up
+    uv run lucida_token.py                       # or: needs only uv
     python lucida_token.py --push http://lucidarr:8787       # upload (asks for password)
     python lucida_token.py --push http://lucidarr:8787 --every 360   # refresh every 6 h
 
-First run on a machine: `python -m playwright install chromium` (or pass --install).
+On a machine without Playwright it asks to create a private virtualenv (in
+~/.local/share/lucida-token/venv, or $LUCIDA_TOKEN_HOME) and installs Playwright and
+Chromium there; nothing is installed system-wide. Pass --yes to skip the question.
 
 The JSON matches lucidadl's clearance.json ({"cf_clearance", "ua", "ts"}), so the file
 can also be copied to <lucidadl app data>/clearance.json by hand. Treat it like a
@@ -24,19 +26,23 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import time
+import venv
 import urllib.error
 import urllib.request
 from typing import Optional, Tuple
 
 LUCIDA = "https://lucida.to"
-DEFAULT_PROFILE = os.path.join(
+HOME_DIR = os.environ.get("LUCIDA_TOKEN_HOME") or os.path.join(
     os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share"),
-    "lucida-token", "profile")
+    "lucida-token")
+DEFAULT_PROFILE = os.path.join(HOME_DIR, "profile")
+VENV_DIR = os.path.join(HOME_DIR, "venv")
 
 _CHALLENGE_TITLES = ("just a moment", "attention required", "un instant",
                      "checking your browser", "verifying", "verification")
@@ -85,15 +91,69 @@ def push(url: str, password: str, payload: dict, timeout: float = 20.0) -> None:
         raise RuntimeError(f"could not reach {url}: {e.reason}") from e
 
 
+# --- self-setup: a private virtualenv when Playwright is not installed ------------------
+
+def have_playwright() -> bool:
+    return importlib.util.find_spec("playwright") is not None
+
+
+def venv_python() -> str:
+    sub = "Scripts" if os.name == "nt" else "bin"
+    return os.path.join(VENV_DIR, sub, "python.exe" if os.name == "nt" else "python")
+
+
+def venv_ready() -> bool:
+    py = venv_python()
+    return os.path.exists(py) and subprocess.call(
+        [py, "-c", "import playwright"], stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL) == 0
+
+
+def bootstrap() -> None:
+    """Create the private venv, install Playwright and Chromium into it."""
+    print(f"Creating a private environment in {VENV_DIR} ...")
+    try:
+        venv.create(VENV_DIR, with_pip=True, clear=False)
+    except Exception as e:  # e.g. Debian without python3-venv
+        sys.exit(f"Could not create a virtualenv: {e}\n"
+                 "Install your distro's python3-venv package, or `pip install playwright` "
+                 "yourself and run this script again.")
+    py = venv_python()
+    subprocess.check_call([py, "-m", "pip", "install", "--quiet", "playwright>=1.40"])
+    subprocess.check_call([py, "-m", "playwright", "install", "chromium"])
+
+
+def ensure_playwright(assume_yes: bool) -> None:
+    """Return when Playwright is importable here; else set up / switch to a private venv
+    and re-run this script inside it (never returns in that case)."""
+    if have_playwright():
+        return
+    if os.environ.get("LUCIDA_TOKEN_REEXEC"):
+        sys.exit("Playwright is still not importable after setup; see the messages above.")
+    if not venv_ready():
+        if not assume_yes:
+            if not sys.stdin.isatty():
+                sys.exit("Playwright is not installed. Re-run with --yes to let this script "
+                         f"create a private environment in {VENV_DIR}, or "
+                         "`pip install playwright` yourself.")
+            ans = input("Playwright is not installed. Create a private environment in\n"
+                        f"  {VENV_DIR}\nand install Playwright + Chromium there? [Y/n] ")
+            if ans.strip().lower() not in ("", "y", "yes"):
+                sys.exit("Cancelled. Run: pip install playwright "
+                         "&& python -m playwright install chromium")
+        bootstrap()
+    env = dict(os.environ, LUCIDA_TOKEN_REEXEC="1")
+    py = venv_python()
+    os.execve(py, [py, os.path.abspath(__file__)] + sys.argv[1:], env)
+
+
 def fetch_clearance(profile: str, timeout: int, hidden: bool, channel: Optional[str]
                     ) -> Tuple[Optional[str], str]:
     """Drive Chromium to lucida.to and return (cf_clearance cookie or None, user agent)."""
     try:
         from playwright.sync_api import sync_playwright, Error as PlaywrightError
     except ImportError:
-        sys.exit("Playwright is not installed. Run: pip install playwright "
-                 "&& python -m playwright install chromium   (or use: uv run %s)"
-                 % os.path.basename(__file__))
+        sys.exit("Playwright is not installed (run this script again to set it up).")
     args = ["--disable-blink-features=AutomationControlled", "--no-first-run"]
     if hidden:  # still headed (headless is challenged), just off-screen
         args += ["--window-position=-32000,-32000", "--window-size=1366,900"]
@@ -163,9 +223,12 @@ def main(argv=None) -> int:
     ap.add_argument("--channel", default=os.environ.get("LUCIDA_CHANNEL"),
                     help="use an installed browser, e.g. chrome (env LUCIDA_CHANNEL)")
     ap.add_argument("--install", action="store_true",
-                    help="install Playwright's Chromium first")
+                    help="install Playwright's Chromium first (done automatically on first setup)")
+    ap.add_argument("-y", "--yes", action="store_true",
+                    help="don't ask before creating the private environment")
     args = ap.parse_args(argv)
 
+    ensure_playwright(args.yes)
     if args.install:
         subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
     if args.push and not args.password:

@@ -42,7 +42,7 @@ will look familiar.
 - Lidarr (API v1; tested on 3.1.6) and its API key
 - Python 3.10+
 - A folder that both lucidarr and Lidarr can read and write (it is used for staging)
-- A machine with a desktop and Chromium, to get the Cloudflare token
+- A machine with a desktop, to get the Cloudflare token (the script installs its own Chromium)
 
 ## Quick start
 
@@ -51,7 +51,7 @@ git clone https://github.com/DavPow16/lucidarr && cd lucidarr
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 cp config.ini.example config.ini                  # set [Lidarr] api_key + host_url
-python scripts/lucida_token.py --install -o ~/.local/share/lucidadl/clearance.json
+python scripts/lucida_token.py -o ~/.local/share/lucidadl/clearance.json   # first run sets itself up
 lucida lucidarr --dry-run                         # show what it would fetch
 lucida lucidarr                                   # run one cycle
 lucida lucidarr --interval 3600                   # keep running, a cycle per hour
@@ -67,11 +67,12 @@ If Lidarr sees the staging folder at a different path (Docker, NAS), set
 ## The token
 
 Downloads need a `cf_clearance` cookie that only a real browser can obtain.
-`scripts/lucida_token.py` fetches it **without lucidadl installed** (it needs only
-Playwright, or `uv run scripts/lucida_token.py`):
+`scripts/lucida_token.py` fetches it **without lucidadl installed**. On a machine without
+Playwright it offers to create its own private virtualenv (in `~/.local/share/lucida-token`)
+and installs Playwright and Chromium there, so nothing is installed system-wide. (`uv run
+scripts/lucida_token.py` also works, and `--yes` skips the question.)
 
 ```bash
-python scripts/lucida_token.py --install                    # first time: fetch Chromium
 python scripts/lucida_token.py -o clearance.json            # save it
 python scripts/lucida_token.py --push http://lucidarr:8787  # upload it to the server
 python scripts/lucida_token.py --push http://lucidarr:8787 --every 360   # refresh every 6 h

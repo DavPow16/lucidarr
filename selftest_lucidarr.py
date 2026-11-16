@@ -548,6 +548,29 @@ with _tmp2.TemporaryDirectory() as _td:
         _unreach = str(_e)
     check("token script: unreachable server gives a clear error", "could not reach" in _unreach)
 
+# token script: self-setup logic (no network, no installs)
+class _NoTty:
+    def isatty(self): return False
+with _p2.object(_tok, "have_playwright", lambda: False), _p2.object(_tok, "venv_ready", lambda: False), \
+        _p2.object(_tok.sys, "stdin", _NoTty()), _p2.dict(_os2.environ, {}, clear=False):
+    _os2.environ.pop("LUCIDA_TOKEN_REEXEC", None)
+    try:
+        _tok.ensure_playwright(False); _m1 = ""
+    except SystemExit as _e:
+        _m1 = str(_e)
+check("token script: no Playwright + no terminal -> asks for --yes, installs nothing",
+      "--yes" in _m1 and "private environment" in _m1)
+with _p2.object(_tok, "have_playwright", lambda: False), _p2.dict(_os2.environ, {"LUCIDA_TOKEN_REEXEC": "1"}):
+    try:
+        _tok.ensure_playwright(True); _m2 = ""
+    except SystemExit as _e:
+        _m2 = str(_e)
+check("token script: never re-execs twice (no setup loop)", "still not importable" in _m2)
+with _p2.object(_tok, "have_playwright", lambda: True):
+    check("token script: Playwright present -> proceeds untouched", _tok.ensure_playwright(False) is None)
+check("token script: private venv lives under its own home dir",
+      _tok.venv_python().startswith(_tok.VENV_DIR) and _tok.VENV_DIR.startswith(_tok.HOME_DIR))
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S): {fails}")
