@@ -876,7 +876,7 @@ def playlist_file_cmd(file, name, check_matches, service, country, downscale, ou
 
 # --- Lidarr (Soularr-style) integration -------------------------------------
 
-async def _soularr_cycle(url, api_key, download_dir, remote_dir, service, country,
+async def _lucidarr_cycle(url, api_key, download_dir, remote_dir, service, country,
                          jobs, hidden, to_fmt, bitrate, cutoff, limit, retry_after,
                          dry_run, wait) -> Dict[str, int]:
     from . import lidarr
@@ -936,7 +936,7 @@ async def _soularr_cycle(url, api_key, download_dir, remote_dir, service, countr
     return stats
 
 
-@cli.command("soularr")
+@cli.command("lucidarr")
 @click.option("--lidarr-url", envvar="LIDARR_URL", default="http://localhost:8686",
               show_default=True, help="Lidarr base URL (env LIDARR_URL).")
 @click.option("--api-key", envvar="LIDARR_API_KEY", required=True,
@@ -964,10 +964,10 @@ async def _soularr_cycle(url, api_key, download_dir, remote_dir, service, countr
 @click.option("--bitrate", default=None, help="Bitrate for --to.")
 @click.option("--hidden/--visible", "hidden", default=False,
               help="Off-screen window if a Cloudflare pass is needed.")
-def soularr_cmd(lidarr_url, api_key, download_dir, remote_dir, cutoff, limit, interval,
+def lucidarr_cmd(lidarr_url, api_key, download_dir, remote_dir, cutoff, limit, interval,
                 retry_after, import_timeout, dry_run, service, country, jobs, to_fmt,
                 bitrate, hidden):
-    """Soularr-style Lidarr integration: fetch Lidarr's wanted albums from lucida.to.
+    """Lidarr integration (Soularr-style): fetch Lidarr's wanted albums from lucida.to.
 
     Each wanted album is searched as "Artist - Album", downloaded into a private
     staging folder, then imported by Lidarr (DownloadedAlbumsScan). Albums that fail
@@ -977,7 +977,7 @@ def soularr_cmd(lidarr_url, api_key, download_dir, remote_dir, cutoff, limit, in
     os.makedirs(download_dir, exist_ok=True)
     while True:
         try:
-            stats = asyncio.run(_soularr_cycle(
+            stats = asyncio.run(_lucidarr_cycle(
                 lidarr_url, api_key, download_dir, remote_dir, service, country, jobs,
                 hidden, to_fmt, bitrate, cutoff, limit, retry_after, dry_run,
                 import_timeout))
@@ -999,6 +999,9 @@ def soularr_cmd(lidarr_url, api_key, download_dir, remote_dir, cutoff, limit, in
             time.sleep(interval * 60)
         except KeyboardInterrupt:
             return
+
+
+cli.add_command(lucidarr_cmd, "soularr")  # alias for the Soularr-style name
 
 
 # --- config -----------------------------------------------------------------

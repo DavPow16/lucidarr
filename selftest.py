@@ -1176,7 +1176,8 @@ async def _lidarr_flow():
 
 
 check("lidarr: paged wanted + import scan", _aio.run(_lidarr_flow()) == (2, "completed"))
-check("cli: soularr command registered", "soularr" in _cli.cli.commands)
+check("cli: lucidarr command + soularr alias registered",
+      "lucidarr" in _cli.cli.commands and "soularr" in _cli.cli.commands)
 
 print()
 if fails:

@@ -222,17 +222,17 @@ lists use their fast public players. Apple Music, YouTube, SoundCloud, and longe
 Spotify/TIDAL lists automatically use a headless browser to load every public position.
 The import stops with a clear error instead of accepting a known partial list.
 
-## Lidarr integration (Soularr-style)
+## Lidarr integration (lucidarr)
 
-`lucida soularr` does for lucida.to what [Soularr](https://github.com/mrusse/soularr)
+`lucida lucidarr` (alias `lucida soularr`) does for lucida.to what [Soularr](https://github.com/mrusse/soularr)
 does for Soulseek: it reads Lidarr's wanted albums, downloads each as
 `Artist - Album`, and asks Lidarr to import the result.
 
 ```bash
 export LIDARR_API_KEY=...            # Lidarr → Settings → General
-lucida soularr --dry-run             # list what would be fetched
-lucida soularr --limit 5             # one cycle
-lucida soularr --interval 60         # keep running, one cycle per hour
+lucida lucidarr --dry-run             # list what would be fetched
+lucida lucidarr --limit 5             # one cycle
+lucida lucidarr --interval 60         # keep running, one cycle per hour
 ```
 
 Each album is staged in its own folder under `<music>/.lidarr` (`--download-dir`), then
