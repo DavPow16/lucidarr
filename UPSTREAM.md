@@ -16,6 +16,7 @@ Fork-only files (upstream never touches these, so they cannot conflict):
 | `lucidadl/webui.py`, `lucidadl/assets/` | the clearance upload page and its logo |
 | `scripts/lucida_token.py` | standalone clearance fetcher (no lucidadl needed) |
 | `scripts/sync-upstream.sh`, `scripts/slim-tree.sh` | merge helper, working-tree slimmer |
+| `.github/workflows/lucidarr-ci.yml` | our CI: both test suites |
 | `deploy/`, `config.ini.example`, `LUCIDARR.md`, `UPSTREAM.md`, `selftest_lucidarr.py` | install, docs, tests |
 
 Upstream-owned files we edited (a dozen lines in total; look for "fork hook"):
@@ -61,5 +62,10 @@ History and merges are unaffected; only the files in your working tree are fewer
 server install is slimmed differently: it skips Chromium and Xvfb unless asked
 (`WITH_BROWSER=1`), since tokens come from `scripts/lucida_token.py`.
 
-GitHub Actions are disabled for this private repo (upstream's release/publish/nix
-workflows do nothing useful here).
+Upstream's GitHub Actions stay as they are: its CI runs, and its release/publish/mirror
+workflows skip themselves on this private repo. `.github/workflows/lucidarr-ci.yml` is ours
+and also runs `selftest_lucidarr.py`.
+
+Install the fork **editable** (`pip install -e .`, as `deploy/install.sh` does). The logo is
+not listed in `pyproject.toml` (an upstream-owned file we leave alone), so a regular
+wheel install would simply serve the clearance page without it.
