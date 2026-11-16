@@ -891,7 +891,8 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
             await acquire_clearance(hidden=cfg.hidden)
         except Exception as e:
             raise lidarr.LidarrError(
-                f"lucida.to access is not ready ({e}); run `lucida setup`.") from e
+                f"lucida.to access is not ready ({e}). Upload a clearance from a machine with "
+                "a desktop (`lucida setup` there, then `lucida push-clearance`).") from e
 
     client = lidarr.LidarrClient(cfg.url, cfg.api_key)
     attempts = lidarr.AttemptState()
@@ -1069,6 +1070,8 @@ def lucidarr_cmd(config_path, **opts):
                             format=cfg.log_format, datefmt=cfg.log_datefmt, force=True)
     except Exception:
         logging.basicConfig(level=logging.INFO, force=True)
+    for noisy in ("httpx", "httpcore"):  # one INFO line per request floods the journal
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     log = logging.getLogger("lucidarr")
     log.info("Config: %s", path or "(defaults)")
     cfg.download_dir = os.path.abspath(
@@ -1111,6 +1114,65 @@ def lucidarr_cmd(config_path, **opts):
 
 
 cli.add_command(lucidarr_cmd, "soularr")  # alias for the Soularr-style name
+
+
+@cli.command("web")
+@click.option("--config", "config_path", type=click.Path(dir_okay=False), default=None)
+@click.option("--host", default=None, help="Override [Web] host.")
+@click.option("--port", type=int, default=None, help="Override [Web] port.")
+@click.option("--password", envvar="LUCIDARR_WEB_PASSWORD", default=None,
+              help="Override [Web] password (env LUCIDARR_WEB_PASSWORD).")
+def web_cmd(config_path, host, port, password):
+    """Serve a password-protected page for uploading a Cloudflare clearance.
+
+    Run `lucida setup` on a machine with a desktop, then upload its clearance here (or
+    use `lucida push-clearance`). LAN use only: plain HTTP, never expose it publicly."""
+    from . import lidarr, webui
+    path = lidarr.find_config(config_path)
+    if config_path and not path:
+        click.secho(f"✗ Config file not found: {config_path}", fg="red")
+        raise click.exceptions.Exit(1)
+    cp = lidarr.load_config(path)
+    host = host or cp.get("Web", "host")
+    port = port or cp.getint("Web", "port")
+    password = password or cp.get("Web", "password")
+    if not password:
+        click.secho("✗ Set [Web] password in config.ini (or LUCIDARR_WEB_PASSWORD) "
+                    "before starting the web page.", fg="red")
+        raise click.exceptions.Exit(1)
+    server = webui.make_server(host, port, password)
+    click.echo(f"Clearance page on http://{host}:{port}/  (Ctrl+C to stop)")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+@cli.command("push-clearance")
+@click.argument("url")
+@click.option("--password", prompt=True, hide_input=True, envvar="LUCIDARR_WEB_PASSWORD")
+def push_clearance_cmd(url, password):
+    """Send this machine's saved clearance to a lucidarr web page.
+
+    Run `lucida setup` here first so the clearance is fresh, then e.g.
+    `lucida push-clearance http://192.168.1.50:8787`."""
+    import httpx
+    cf, ua = load_clearance()
+    if not ua:
+        click.secho("No saved clearance on this machine; run `lucida setup` first.", fg="red")
+        raise click.exceptions.Exit(1)
+    try:
+        r = httpx.post(url.rstrip("/") + "/api/clearance", timeout=15,
+                       json={"cf_clearance": cf, "ua": ua},
+                       headers={"Authorization": f"Bearer {password}"})
+    except httpx.HTTPError as e:
+        click.secho(f"✗ Could not reach {url}: {e}", fg="red")
+        raise click.exceptions.Exit(1)
+    if r.status_code == 200:
+        click.secho("✓ Clearance uploaded.", fg="green")
+    else:
+        click.secho(f"✗ Server answered {r.status_code}: {r.text[:200]}", fg="red")
+        raise click.exceptions.Exit(1)
 
 
 # --- config -----------------------------------------------------------------

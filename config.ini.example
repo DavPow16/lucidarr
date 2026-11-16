@@ -52,6 +52,14 @@ retry_after_hours = 24
 # e.g. title_blacklist = karaoke,tribute   (substring match on the album title)
 title_blacklist =
 
+[Web]
+# `lucida web` serves a page for uploading a Cloudflare clearance from a machine that has
+# a desktop (see README). Plain HTTP for a trusted LAN only. It refuses to start
+# without a password.
+host = 0.0.0.0
+port = 8787
+password =
+
 [Logging]
 # Passed to Python's logging.basicConfig().
 level = INFO

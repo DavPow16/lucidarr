@@ -1,0 +1,15 @@
+[Unit]
+Description=lucidarr - Cloudflare clearance upload page
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=@USER@
+Environment=LUCIDARR_CONFIG=/etc/lucidarr/config.ini
+Environment=LUCIDADL_HOME=/var/lib/lucidarr/data
+ExecStart=/opt/lucidarr/.venv/bin/lucida web
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

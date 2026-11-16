@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Update the installed copy from a refreshed clone. Run as root.
+#   cd /root/lucidarr && git pull        # needs your GitHub token, see README
+#   /root/lucidarr/deploy/update.sh
+set -euo pipefail
+REPO="${REPO:-/root/lucidarr}"
+APP_USER="${APP_USER:-lucidarr}"
+APP_DIR=/opt/lucidarr
+[ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
+
+git -C "$APP_DIR" -c safe.directory="$APP_DIR" pull --ff-only "$REPO" main
+"$APP_DIR/.venv/bin/pip" install -q -e "$APP_DIR"
+chown -R "$APP_USER": "$APP_DIR"
+for unit in lucidarr lucidarr-web; do
+  STAGING=$(grep -o -- '--download-dir [^ ]*' "/etc/systemd/system/$unit.service" 2>/dev/null | cut -d' ' -f2 || true)
+  install -m 644 "$APP_DIR/deploy/$unit.service" "/etc/systemd/system/$unit.service"
+  sed -i "s|@STAGING@|${STAGING:-/mnt/Downloads}|g; s|@USER@|$APP_USER|g" "/etc/systemd/system/$unit.service"
+done
+systemctl daemon-reload
+for unit in lucidarr lucidarr-web; do
+  systemctl is-enabled --quiet "$unit" 2>/dev/null && systemctl restart "$unit" && echo "restarted $unit"
+done || true
+echo "updated to $(git -C "$APP_DIR" -c safe.directory="$APP_DIR" log --oneline -1)"

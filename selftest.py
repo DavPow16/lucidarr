@@ -1308,6 +1308,59 @@ for _bad in ({"limit": 0}, {"jobs": 0}):
     check(f"config: rejects {_bad}", _ok)
 check("find_config: missing explicit path is not silently replaced",
       _ld.find_config("/definitely/not/here.ini") is None)
+
+# --- clearance web page ---
+import threading as _th
+from lucidadl import webui as _web, session as _sess
+
+check("web: pasted JSON parsed", _web.parse_submission('{"cf_clearance":"abc","ua":"UA/1"}')
+      == ("abc", "UA/1"))
+check("web: cookie may be absent", _web.parse_submission("", "", "UA/1") == (None, "UA/1"))
+_rej = []
+for _args in (("not json",), ('{"cf_clearance":"a"}',), ("", "bad\r\nX: 1", "UA"),
+              ("", "ok", "UA\nInjected: 1"), ("[1]",)):
+    try:
+        _web.parse_submission(*_args); _rej.append(False)
+    except _web.BadSubmission:
+        _rej.append(True)
+check("web: bad / injecting submissions rejected", all(_rej))
+try:
+    _web.make_server("127.0.0.1", 0, ""); _nopw = False
+except ValueError:
+    _nopw = True
+check("web: refuses to start without a password", _nopw)
+
+with _tmp2.TemporaryDirectory() as _wd, _p2.object(
+        _sess, "CLEARANCE_PATH", _os2.path.join(_wd, "clearance.json")), \
+        _p2.object(_web.time, "sleep", lambda s: None):
+    _srv = _web.make_server("127.0.0.1", 0, "s3cret")
+    _port = _srv.server_address[1]
+    _th.Thread(target=_srv.serve_forever, daemon=True).start()
+    _u = f"http://127.0.0.1:{_port}"
+    try:
+        check("web: page loads", _httpx.get(_u + "/").status_code == 200)
+        check("web: wrong password refused, nothing saved",
+              _httpx.post(_u + "/upload", data={"password": "no", "pasted":
+                          '{"cf_clearance":"x","ua":"U"}'}).status_code == 403
+              and not _os2.path.exists(_sess.CLEARANCE_PATH))
+        _r = _httpx.post(_u + "/upload", data={"password": "s3cret", "pasted":
+                         '{"cf_clearance":"cookie1","ua":"UA/9"}'})
+        check("web: form upload saved", _r.status_code == 200
+              and _sess.load_clearance() == ("cookie1", "UA/9"))
+        check("web: page never reveals the cookie", "cookie1" not in _httpx.get(_u + "/").text)
+        check("web: api rejects missing/incorrect bearer",
+              _httpx.post(_u + "/api/clearance", json={"ua": "U"}).status_code == 403)
+        _r = _httpx.post(_u + "/api/clearance", json={"cf_clearance": "c2", "ua": "UA/10"},
+                         headers={"Authorization": "Bearer s3cret"})
+        check("web: api upload saved", _r.status_code == 200
+              and _sess.load_clearance() == ("c2", "UA/10"))
+        check("web: oversized body rejected", _httpx.post(
+              _u + "/api/clearance", content=b"x" * 20000,
+              headers={"Authorization": "Bearer s3cret"}).status_code == 400)
+    finally:
+        _srv.shutdown()
+check("cli: web + push-clearance registered",
+      "web" in _cli.cli.commands and "push-clearance" in _cli.cli.commands)
 check("cli: lucidarr command + soularr alias registered",
       "lucidarr" in _cli.cli.commands and "soularr" in _cli.cli.commands)
 

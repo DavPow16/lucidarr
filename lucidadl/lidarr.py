@@ -52,6 +52,7 @@ DEFAULTS: Dict[str, Dict[str, str]] = {
                         "number_of_albums_to_grab": "10",
                         "remove_wanted_on_failure": "False",
                         "retry_after_hours": "24", "title_blacklist": ""},
+    "Web": {"host": "0.0.0.0", "port": "8787", "password": ""},
     "Logging": {"level": "INFO", "format": DEFAULT_LOG_FORMAT,
                 "datefmt": DEFAULT_DATEFMT},
 }
