@@ -222,37 +222,6 @@ lists use their fast public players. Apple Music, YouTube, SoundCloud, and longe
 Spotify/TIDAL lists automatically use a headless browser to load every public position.
 The import stops with a clear error instead of accepting a known partial list.
 
-## Lidarr integration (lucidarr)
-
-`lucida lucidarr` (alias `lucida soularr`) does for lucida.to what
-[Soularr](https://soularr.net) does for Soulseek: it reads Lidarr's wanted albums,
-downloads each as `Artist - Album`, and asks Lidarr to import the result. It is
-configured the same way, with a `config.ini`:
-
-```bash
-cp config.ini.example config.ini     # set [Lidarr] api_key and host_url
-lucida lucidarr --dry-run            # list what would be fetched
-lucida lucidarr                      # one cycle
-lucida lucidarr --interval 300       # keep running, a cycle every 300 s
-```
-
-| Section | Keys |
-|---|---|
-| `[Lidarr]` | `api_key`, `host_url`, `download_dir` (staging folder *as Lidarr sees it*), `disable_sync` |
-| `[Lucida]` (replaces `[Slskd]`) | `download_dir` (local staging), `service`, `country`, `jobs`, `convert_to`, `bitrate`, `hidden`, `import_timeout` |
-| `[Search Settings]` | `search_source` (`missing`/`cutoff_unmet`), `search_type` (`all`/`first_page`/`incrementing_page`), `number_of_albums_to_grab`, `remove_wanted_on_failure`, `retry_after_hours`, `title_blacklist` |
-| `[Logging]` | `level`, `format`, `datefmt` |
-
-The file is found via `--config`, `$LUCIDARR_CONFIG`, `./config.ini`, then the app data
-folder. Command-line options and the `LIDARR_URL`, `LIDARR_API_KEY`,
-`LIDARR_REMOTE_DIR` and `SCRIPT_INTERVAL` (seconds) variables override it. Soularr's
-`[Release Settings]` have no equivalent because lucida.to serves one release per album.
-
-Each album is staged in its own folder, then Lidarr runs `DownloadedAlbumsScan` on it and
-moves the files into your library. Set `[Lidarr] download_dir` when Lidarr sees the
-staging folder at a different path (Docker, NAS). Failed albums are retried only after
-`retry_after_hours`; unimported files stay in the staging folder.
-
 ## Interactive menu
 
 Run `lucida` without arguments (or `lucida ui`):

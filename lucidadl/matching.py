@@ -98,36 +98,6 @@ def score(query: str, item: Dict[str, str]) -> float:
     return s
 
 
-# Words that only label an edition of the same album; ignored when comparing titles.
-_EDITION_WORDS = {
-    "deluxe", "special", "edition", "expanded", "remaster", "remastered", "anniversary",
-    "version", "bonus", "track", "tracks", "explicit", "clean", "digital", "standard",
-    "super", "collectors", "collector", "reissue", "mono", "stereo", "the",
-}
-
-
-def title_agrees(query: str, item: Dict[str, str], min_cover: float = 0.8) -> bool:
-    """For ALBUM matching: does the result's title really name the album asked for?
-
-    The generic score happily accepts a *different* album by the same artist that shares
-    most words ("Christmas With Elvis Presley" vs "Elvis Presley Christmas Duets").
-    Here at least ``min_cover`` of the wanted title's words must appear in the result,
-    and the result may add only a few words of its own (edition labels such as
-    "Deluxe" or "Special Edition" never count)."""
-    def words(text: str) -> set:  # drop edition labels and bare years ("2019 Remaster")
-        return {w for w in _tokens(text) - _EDITION_WORDS
-                if not (len(w) == 4 and w.isdigit())}
-
-    _, wanted = _split_query(query)
-    wt = words(wanted)
-    if not wt:
-        return True
-    rt = words(item.get("title", ""))
-    if len(wt & rt) / len(wt) < min_cover:
-        return False
-    return len(rt - wt) <= len(wt) // 3
-
-
 def artist_matches(query: str, item: Dict[str, str]) -> bool:
     """True when the first credited artist reasonably matches the requested artist.
 

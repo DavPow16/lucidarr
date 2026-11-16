@@ -11,10 +11,12 @@ APP_DIR=/opt/lucidarr
 git -C "$APP_DIR" -c safe.directory="$APP_DIR" pull --ff-only "$REPO" main
 "$APP_DIR/.venv/bin/pip" install -q -e "$APP_DIR"
 chown -R "$APP_USER": "$APP_DIR"
+# Keep whatever was chosen at install time: a browser (xvfb-run) or none.
+XVFB=""
+grep -q xvfb-run /etc/systemd/system/lucidarr.service 2>/dev/null && XVFB="/usr/bin/xvfb-run -a "
 for unit in lucidarr lucidarr-web; do
-  STAGING=$(grep -o -- '--download-dir [^ ]*' "/etc/systemd/system/$unit.service" 2>/dev/null | cut -d' ' -f2 || true)
   install -m 644 "$APP_DIR/deploy/$unit.service" "/etc/systemd/system/$unit.service"
-  sed -i "s|@STAGING@|${STAGING:-/mnt/Downloads}|g; s|@USER@|$APP_USER|g" "/etc/systemd/system/$unit.service"
+  sed -i "s|@USER@|$APP_USER|g; s|@XVFB@|$XVFB|g" "/etc/systemd/system/$unit.service"
 done
 systemctl daemon-reload
 for unit in lucidarr lucidarr-web; do
