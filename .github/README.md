@@ -76,7 +76,12 @@ scripts/lucida_token.py` also works, and `--yes` skips the question.)
 python scripts/lucida_token.py -o clearance.json            # save it
 python scripts/lucida_token.py --push http://lucidarr:8787  # upload it to the server
 python scripts/lucida_token.py --push http://lucidarr:8787 --every 360   # refresh every 6 h
+python scripts/lucida_token.py --from-file clearance.json --push http://lucidarr:8787   # no browser
 ```
+
+The upload address is checked first, so a wrong one fails immediately. If an upload fails
+after the browser step, the token is kept in `~/.local/share/lucida-token/last-clearance.json`
+and the message shows how to retry it with `--from-file`.
 
 The cookie is tied to your IP address, so fetch it on the same network as the server, and
 treat the file like a password. On a server, `lucida web` serves a small password-protected

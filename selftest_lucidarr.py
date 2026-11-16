@@ -610,6 +610,48 @@ except RuntimeError as _e:
     _uae = str(_e)
 check("token script: gives up with a clear error if the user agent never reads", "user agent" in _uae)
 
+# token script: fail fast on a bad address, keep the token if the upload fails, --from-file
+import argparse as _ap
+check("token script: unreachable() reports a refused/absent server",
+      bool(_tok.unreachable("http://127.0.0.1:1", timeout=2)))
+with _tmp2.TemporaryDirectory() as _td:
+    _clr = _os2.path.join(_td, "clearance.json")
+    open(_clr, "w").write(_json.dumps({"cf_clearance": "cX", "ua": "UA/7", "ts": 3}))
+    with _p2.object(_sess, "CLEARANCE_PATH", _os2.path.join(_td, "server.json")), \
+            _p2.object(_web.time, "sleep", lambda s: None):
+        _srv3 = _web.make_server("127.0.0.1", 0, "pw")
+        _th.Thread(target=_srv3.serve_forever, daemon=True).start()
+        _u3 = f"http://127.0.0.1:{_srv3.server_address[1]}"
+        try:
+            check("token script: unreachable() is None for a live server", _tok.unreachable(_u3) is None)
+            _a = _ap.Namespace(from_file=_clr, out=None, push=_u3, password="pw", profile="x",
+                               timeout=1, hidden=True, channel=None)
+            with _p2.object(_tok, "fetch_clearance", lambda *a, **k: (_ for _ in ()).throw(AssertionError("browser!"))):
+                _rc = _tok.run_once(_a)
+            check("token script: --from-file uploads without opening a browser",
+                  _rc == 0 and _sess.load_clearance() == ("cX", "UA/7"))
+        finally:
+            _srv3.shutdown()
+    # a failed upload must keep the freshly fetched token on disk
+    with _p2.object(_tok, "HOME_DIR", _td), _p2.object(_tok, "fetch_clearance", lambda *a, **k: ("cN", "UA/8")):
+        _a = _ap.Namespace(from_file=None, out=None, push="http://127.0.0.1:1", password="pw",
+                           profile="x", timeout=1, hidden=True, channel=None)
+        _rc = _tok.run_once(_a)
+        _kept = _os2.path.join(_td, "last-clearance.json")
+        check("token script: failed upload keeps the token and exits non-zero",
+              _rc == 1 and _os2.path.exists(_kept) and _json.load(open(_kept))["cf_clearance"] == "cN"
+              and (_os2.stat(_kept).st_mode & 0o777) == 0o600)
+    try:
+        open(_os2.path.join(_td, "bad.json"), "w").write("{}"); _tok.load_file(_os2.path.join(_td, "bad.json")); _bad2 = False
+    except ValueError:
+        _bad2 = True
+    check("token script: --from-file rejects a file that is not a clearance", _bad2)
+_a = _ap.Namespace(from_file=None, out=None, push="http://127.0.0.1:1", password="pw", profile="x",
+                   timeout=1, hidden=True, channel=None, install=False, yes=True, every=0)
+with _p2.object(_tok.sys, "argv", ["t", "--push", "http://127.0.0.1:1", "--password", "pw", "--yes"]), \
+        _p2.object(_tok, "fetch_clearance", lambda *a, **k: (_ for _ in ()).throw(AssertionError("browser opened before reachability check"))):
+    check("token script: a bad --push address fails before any browser starts", _tok.main() == 1)
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S): {fails}")

@@ -189,6 +189,28 @@ def ensure_playwright(assume_yes: bool) -> None:
     os.execve(py, [py, os.path.abspath(__file__)] + sys.argv[1:], env)
 
 
+def unreachable(url: str, timeout: float = 5.0) -> Optional[str]:
+    """None if the server answers (any HTTP status counts); else a short reason."""
+    try:
+        urllib.request.urlopen(url, timeout=timeout).close()
+    except urllib.error.HTTPError:
+        return None  # it answered
+    except urllib.error.URLError as e:
+        return str(e.reason)
+    except OSError as e:
+        return str(e)
+    return None
+
+
+def load_file(path: str) -> dict:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or not data.get("ua"):
+        raise ValueError(f"{path} is not a clearance file (needs a 'ua' field)")
+    return {"cf_clearance": data.get("cf_clearance") or None, "ua": data["ua"],
+            "ts": data.get("ts") or time.time()}
+
+
 def fetch_clearance(profile: str, timeout: int, hidden: bool, channel: Optional[str]
                     ) -> Tuple[Optional[str], str]:
     """Drive Chromium to lucida.to and return (cf_clearance cookie or None, user agent)."""
@@ -225,20 +247,32 @@ def fetch_clearance(profile: str, timeout: int, hidden: bool, channel: Optional[
 
 
 def run_once(args) -> int:
-    cf, ua = fetch_clearance(args.profile, args.timeout, args.hidden, args.channel)
-    payload = build_payload(cf, ua)
-    note = "cookie present" if cf else "no cookie issued (user agent only)"
-    if args.out:
-        save(args.out, payload)
-        print(f"Saved {args.out} ({note})")
+    if args.from_file:
+        payload = load_file(args.from_file)
+        print(f"Using the clearance in {args.from_file} (no browser).")
+    else:
+        cf, ua = fetch_clearance(args.profile, args.timeout, args.hidden, args.channel)
+        payload = build_payload(cf, ua)
+    note = "cookie present" if payload["cf_clearance"] else "no cookie issued (user agent only)"
+    out = args.out
+    if out:
+        save(out, payload)
+        print(f"Saved {out} ({note})")
     if args.push:
         try:
             push(args.push, args.password, payload)
         except RuntimeError as e:
             print(f"Upload failed: {e}", file=sys.stderr)
+            if not out and not args.from_file:
+                # Don't throw away a token that took a browser run to get.
+                out = os.path.join(HOME_DIR, "last-clearance.json")
+                save(out, payload)
+                print(f"The token was kept in {out}. Retry without the browser:\n"
+                      f"  python {os.path.basename(__file__)} --from-file {out} --push {args.push}",
+                      file=sys.stderr)
             return 1
         print(f"Uploaded to {args.push}")
-    if not args.out and not args.push:
+    if not out and not args.push:
         print(json.dumps(payload))
     return 0
 
@@ -252,6 +286,8 @@ def main(argv=None) -> int:
                     help="upload to a lucidarr web page, e.g. http://lucidarr:8787")
     ap.add_argument("--password", default=os.environ.get("LUCIDARR_WEB_PASSWORD"),
                     help="web page password (env LUCIDARR_WEB_PASSWORD; prompted if unset)")
+    ap.add_argument("--from-file", metavar="JSON", default=None,
+                    help="skip the browser: use an existing clearance JSON (e.g. to retry --push)")
     ap.add_argument("--every", type=int, default=0, metavar="MIN",
                     help="repeat every MIN minutes (keep refreshing); 0 = once")
     ap.add_argument("--timeout", type=int, default=180, help="seconds to wait for the check")
@@ -265,8 +301,16 @@ def main(argv=None) -> int:
                     help="don't ask before creating the private environment")
     args = ap.parse_args(argv)
 
-    ensure_playwright(args.yes)
-    if args.install:
+    if args.push:  # fail fast, before the browser opens
+        why = unreachable(args.push)
+        if why:
+            print(f"Cannot reach {args.push}: {why}\n"
+                  "Check the address and port, that `lucidarr-web` is running on the server, "
+                  "and any firewall between the two machines.", file=sys.stderr)
+            return 1
+    if not args.from_file:
+        ensure_playwright(args.yes)
+    if args.install and not args.from_file:
         subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
     if args.push and not args.password:
         args.password = getpass.getpass("lucidarr web password: ")
