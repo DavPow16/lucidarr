@@ -45,7 +45,7 @@ FAILURE_LIST_PATH = str(paths.DATA_DIR / "failure_list.txt")
 
 DEFAULTS: Dict[str, Dict[str, str]] = {
     "Lidarr": {"api_key": "", "host_url": "http://localhost:8686",
-               "download_dir": "", "disable_sync": "False"},
+               "download_dir": "", "disable_sync": "False", "import_method": "manual"},
     "Lucida": {"download_dir": "", "service": "qobuz", "country": "", "jobs": "3",
                "convert_to": "", "bitrate": "", "hidden": "False",
                "import_timeout": "300"},
@@ -91,6 +91,7 @@ class Settings:
     download_dir: str
     remote_dir: str
     disable_sync: bool
+    import_method: str
     service: str
     country: Optional[str]
     jobs: int
@@ -138,6 +139,8 @@ def _resolve(cp: configparser.ConfigParser, o: Dict[str, Any]) -> Settings:
     if stype not in ("all", "first_page", "incrementing_page"):
         raise LidarrError(f"search_type must be all, first_page or incrementing_page "
                           f"(got {stype!r}).")
+    if pick("import_method", "Lidarr", "import_method").strip().lower() not in ("manual", "scan"):
+        raise LidarrError("import_method must be manual or scan.")
     if source not in ("missing", "cutoff_unmet"):
         raise LidarrError(f"search_source must be missing or cutoff_unmet (got {source!r}).")
     return Settings(
@@ -146,6 +149,7 @@ def _resolve(cp: configparser.ConfigParser, o: Dict[str, Any]) -> Settings:
         download_dir=pick("download_dir", "Lucida", "download_dir"),
         remote_dir=pick("remote_dir", "Lidarr", "download_dir"),
         disable_sync=pick("disable_sync", "Lidarr", "disable_sync", boolean),
+        import_method=pick("import_method", "Lidarr", "import_method").strip().lower(),
         service=pick("service", "Lucida", "service"),
         country=pick("country", "Lucida", "country") or None,
         jobs=pick("jobs", "Lucida", "jobs", int),
@@ -361,26 +365,68 @@ class LidarrClient:
         await self._request("PUT", "/album/monitor",
                             json={"albumIds": [album_id], "monitored": False})
 
-    async def import_folder(self, remote_path: str, wait: float = 300.0,
-                            poll: float = 3.0) -> str:
-        """Run ``DownloadedAlbumsScan`` on a folder; returns the final command status."""
-        cmd = await self._request("POST", "/command", json={
-            "name": "DownloadedAlbumsScan", "path": remote_path,
-            "importMode": "Move"})
+    async def _wait(self, cmd: Dict[str, Any], wait: float, poll: float) -> str:
         cid = cmd.get("id")
         if cid is None:
-            raise LidarrError("Lidarr did not return a command id for the import scan.")
+            raise LidarrError("Lidarr did not return a command id.")
         deadline = time.monotonic() + wait
         status = str(cmd.get("status") or "queued")
         while status.lower() not in _DONE_STATES and time.monotonic() < deadline:
             await asyncio.sleep(poll)
-            try:  # a transient poll error must not abandon a scan Lidarr is running
+            try:  # a transient poll error must not abandon a command Lidarr is running
                 status = str((await self._request("GET", f"/command/{cid}"))
                              .get("status") or status)
             except LidarrError:
                 if time.monotonic() >= deadline:
                     raise
         return status.lower()
+
+    async def import_folder(self, remote_path: str, wait: float = 300.0,
+                            poll: float = 3.0) -> str:
+        """``DownloadedAlbumsScan`` on a folder (Lidarr derives the artist from the
+        folder name, which often fails); returns the final command status."""
+        cmd = await self._request("POST", "/command", json={
+            "name": "DownloadedAlbumsScan", "path": remote_path,
+            "importMode": "Move"})
+        return await self._wait(cmd, wait, poll)
+
+    async def manual_import(self, folder: str, artist_id: Optional[int], album_id: int,
+                            wait: float = 300.0, poll: float = 3.0,
+                            replace: bool = False):
+        """Like the UI's Manual Import: have Lidarr match the folder's files, then import
+        the ones that matched *this* album. Returns (status, imported, seen, reasons);
+        status is 'unmatched' when nothing could be matched."""
+        params: Dict[str, Any] = {"folder": folder, "filterExistingFiles": "true",
+                                  "replaceExistingFiles": "true" if replace else "false"}
+        if artist_id is not None:
+            params["artistId"] = artist_id
+        items = await self._request("GET", "/manualimport", params=params) or []
+        files: List[Dict[str, Any]] = []
+        reasons: List[str] = []
+        for it in items:
+            album, artist = it.get("album") or {}, it.get("artist") or {}
+            tracks = it.get("tracks") or []
+            why = "; ".join(str(r.get("reason")) for r in it.get("rejections") or []
+                            if isinstance(r, dict))
+            label = it.get("name") or os.path.basename(str(it.get("path") or "?"))
+            if album.get("id") != album_id or not artist.get("id") or not tracks:
+                found = f" (matched album id {album.get('id')})" if album.get("id") else ""
+                reasons.append(f"{label}: not matched to this album{found}"
+                               + (f" — {why}" if why else ""))
+                continue
+            if why:
+                reasons.append(f"{label}: imported despite — {why}")
+            files.append({
+                "path": it["path"], "artistId": artist["id"], "albumId": album["id"],
+                "albumReleaseId": it.get("albumReleaseId"),
+                "trackIds": [t["id"] for t in tracks if t.get("id") is not None],
+                "quality": it.get("quality"), "downloadId": it.get("downloadId") or "",
+                "disableReleaseSwitching": bool(it.get("disableReleaseSwitching", False))})
+        if not files:
+            return "unmatched", 0, len(items), reasons
+        cmd = await self._request("POST", "/command", json={
+            "name": "ManualImport", "files": files, "importMode": "move"})
+        return await self._wait(cmd, wait, poll), len(files), len(items), reasons
 
     async def album_has_files(self, album_id: int) -> bool:
         data = await self._request("GET", "/album", params={"albumIds": album_id})

@@ -1255,6 +1255,9 @@ class _FakeLidarr:
         self.imports.append(path)
         for f in _FakeLidarr.import_effect: f(path)
         return "completed"
+    async def manual_import(self, path, artist_id, album_id, wait=300, poll=3, replace=False):
+        status = await self.import_folder(path, wait)
+        return status, 1, 1, []
     async def unmonitor(self, aid): self.unmonitored.append(aid)
     async def aclose(self): pass
 
@@ -1304,6 +1307,8 @@ check("cycle: disable_sync records 'staged', no import",
 
 class _Boom(_FakeLidarr):
     async def import_folder(self, path, wait=300):
+        raise _ld.LidarrError("down")
+    async def manual_import(self, *a, **k):
         raise _ld.LidarrError("down")
 with _p2.object(_ld, "LidarrClient", _Boom), _tmp2.TemporaryDirectory() as _d3:
     _FakeLidarr.albums = [_alb(1), _alb(2)]
@@ -1385,6 +1390,62 @@ with _tmp2.TemporaryDirectory() as _wd, _p2.object(
         _srv.shutdown()
 check("cli: web + push-clearance registered",
       "web" in _cli.cli.commands and "push-clearance" in _cli.cli.commands)
+
+# --- Manual Import API ---
+_posted = []
+def _fake_manual(request):
+    if request.url.path.endswith("/manualimport"):
+        q = dict(request.url.params)
+        assert q["folder"] == "/r/A - T" and q["artistId"] == "5" and q["replaceExistingFiles"] == "false"
+        return _httpx.Response(200, json=[
+            {"name": "01", "path": "/r/A - T/01.flac", "artist": {"id": 5}, "album": {"id": 9},
+             "albumReleaseId": 77, "tracks": [{"id": 101}], "quality": {"q": 1}, "rejections": []},
+            {"name": "02", "path": "/r/A - T/02.flac", "artist": {"id": 5}, "album": {"id": 9},
+             "albumReleaseId": 77, "tracks": [{"id": 102}], "quality": {"q": 1},
+             "rejections": [{"reason": "Not an upgrade"}]},
+            {"name": "03", "path": "/r/A - T/03.flac", "artist": {}, "album": {}, "tracks": [],
+             "rejections": [{"reason": "Unknown Artist"}]},
+            {"name": "04", "path": "/r/A - T/04.flac", "artist": {"id": 5}, "album": {"id": 10},
+             "albumReleaseId": 1, "tracks": [{"id": 1}], "rejections": []}])
+    if request.url.path.endswith("/command") and request.method == "POST":
+        _posted.append(_json.loads(request.content))
+        return _httpx.Response(201, json={"id": 3, "status": "queued"})
+    if request.url.path.endswith("/command/3"):
+        return _httpx.Response(200, json={"status": "completed"})
+    return _httpx.Response(404)
+
+async def _manual_flow(items_empty=False):
+    c = _ld.LidarrClient("http://lidarr", "key")
+    c.http._transport = _httpx.MockTransport(
+        (lambda r: _httpx.Response(200, json=[]) if r.url.path.endswith("/manualimport")
+         else _fake_manual(r)) if items_empty else _fake_manual)
+    try:
+        return await c.manual_import("/r/A - T", 5, 9, poll=0.01)
+    finally:
+        await c.aclose()
+
+_mi = _aio.run(_manual_flow())
+check("manual import: imports only files matched to the wanted album",
+      _mi[0] == "completed" and _mi[1] == 2 and _mi[2] == 4)
+check("manual import: payload carries ids, quality and move mode",
+      _posted[-1]["name"] == "ManualImport" and _posted[-1]["importMode"] == "move"
+      and [f["trackIds"] for f in _posted[-1]["files"]] == [[101], [102]]
+      and _posted[-1]["files"][0]["albumReleaseId"] == 77
+      and _posted[-1]["files"][0]["artistId"] == 5 and _posted[-1]["files"][0]["albumId"] == 9)
+check("manual import: rejection reasons are surfaced",
+      any("Unknown Artist" in r for r in _mi[3]) and any("Not an upgrade" in r for r in _mi[3])
+      and any("matched album id 10" in r for r in _mi[3]))
+_before = len(_posted)
+_mi2 = _aio.run(_manual_flow(items_empty=True))
+check("manual import: nothing matched -> 'unmatched', no command posted",
+      _mi2[0] == "unmatched" and len(_posted) == _before)
+check("config: import_method defaults to manual and rejects junk",
+      _ld.resolve(_ld.load_config(None), {}).import_method == "manual")
+try:
+    _ld.resolve(_ld.load_config(None), {"import_method": "nope"}); _imok = False
+except _ld.LidarrError:
+    _imok = True
+check("config: invalid import_method rejected", _imok)
 check("cli: lucidarr command + soularr alias registered",
       "lucidarr" in _cli.cli.commands and "soularr" in _cli.cli.commands)
 

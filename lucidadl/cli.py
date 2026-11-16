@@ -993,9 +993,16 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
             try:
                 folder = await asyncio.to_thread(lidarr.consolidate, stage,
                                                  utils.sanitize(query))
-                status = await client.import_folder(
-                    lidarr.map_path(folder, cfg.download_dir, cfg.remote_dir or None),
-                    wait=cfg.import_timeout)
+                remote = lidarr.map_path(folder, cfg.download_dir, cfg.remote_dir or None)
+                if cfg.import_method == "scan":
+                    status = await client.import_folder(remote, wait=cfg.import_timeout)
+                else:
+                    artist_id = album.get("artistId") or (album.get("artist") or {}).get("id")
+                    status, done, seen, reasons = await client.manual_import(
+                        remote, artist_id, aid, wait=cfg.import_timeout, replace=cfg.cutoff)
+                    log.info("Lidarr matched %d of %d file(s) for %s", done, seen, query)
+                    for reason in reasons[:8]:
+                        log.warning("  %s", reason)
             except lidarr.LidarrError as e:
                 log.error("Lidarr import failed for %s: %s", query, e)
                 attempts.record(aid, query, "import-error")
@@ -1030,6 +1037,8 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
               help="Override [Lucida] download_dir: local staging folder.")
 @click.option("--remote-dir", envvar="LIDARR_REMOTE_DIR", default=None,
               help="Override [Lidarr] download_dir: the staging folder as Lidarr sees it.")
+@click.option("--import-method", "import_method", type=click.Choice(["manual", "scan"]),
+              default=None, help="Override [Lidarr] import_method.")
 @click.option("--cutoff", "source", flag_value="cutoff_unmet", default=None,
               help="Use cutoff-unmet albums (search_source).")
 @click.option("--limit", type=click.IntRange(1), default=None,
