@@ -1035,11 +1035,22 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
                     attempts.forget(aid)
                     stats["imported"] += 1
                 else:
-                    log.warning(
-                        "Lidarr took the files but attached them to a DIFFERENT album; "
-                        "%s still has none. Check its History in Lidarr.", query)
-                    attempts.record(aid, query, "import-elsewhere")
-                    stats["failed"] += 1
+                    try:
+                        sibling = await client.sibling_with_files(album)
+                    except lidarr.LidarrError:
+                        sibling = None
+                    if sibling is not None:
+                        log.info("Imported into Lidarr as another edition of %s (album id "
+                                 "%s, same title); skipping this wanted entry from now on.",
+                                 query, sibling)
+                        attempts.record(aid, query, f"sibling:{sibling}")
+                        stats["imported"] += 1
+                    else:
+                        log.warning(
+                            "Lidarr took the files but attached them to a DIFFERENT album; "
+                            "%s still has none. Check its History in Lidarr.", query)
+                        attempts.record(aid, query, "import-elsewhere")
+                        stats["failed"] += 1
             else:
                 log.warning("Lidarr did not import it (scan %s); files kept in %s",
                             status, stage)

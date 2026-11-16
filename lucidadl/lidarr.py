@@ -330,6 +330,8 @@ class AttemptState:
         rec = self.data.get(str(album_id))
         if not rec:
             return True
+        if str(rec.get("result", "")).startswith("sibling:"):
+            return False  # its twin edition has the files; never fetch it again
         now = time.time() if now is None else now
         return now - float(rec.get("at", 0)) >= retry_after_hours * 3600
 
@@ -489,6 +491,22 @@ class LidarrClient:
             "name": "ManualImport", "files": files, "importMode": "move"})
         return await self._wait(cmd, wait, poll), len(files), len(items), reasons
 
+    async def sibling_with_files(self, album: Dict[str, Any]) -> Optional[int]:
+        """Id of another album of the same artist with the SAME title that has files.
+        Lidarr often lists one release twice (two editions); an import can attach the
+        files to the twin instead of the wanted record."""
+        artist_id = album.get("artistId") or (album.get("artist") or {}).get("id")
+        if artist_id is None:
+            return None
+        data = await self._request("GET", "/album", params={"artistId": artist_id})
+        want = _title_key(album.get("title"))
+        for other in data if isinstance(data, list) else []:
+            stats = other.get("statistics") or {}
+            if (other.get("id") != album.get("id") and _title_key(other.get("title")) == want
+                    and int(stats.get("trackFileCount") or 0) > 0):
+                return other.get("id")
+        return None
+
     async def album_has_files(self, album_id: int, retries: int = 3,
                               delay: float = 2.0) -> bool:
         """Does Lidarr now hold files for THIS album? (An import can succeed yet attach
@@ -506,6 +524,11 @@ class LidarrClient:
             if attempt + 1 < retries:
                 await asyncio.sleep(delay)  # let Lidarr finish updating its counts
         return False
+
+
+def _title_key(title: Any) -> str:
+    """Case/punctuation-insensitive key for comparing album titles."""
+    return "".join(ch for ch in str(title or "").casefold() if ch.isalnum())
 
 
 def staging_dir(download_dir: str, album: Dict[str, Any]) -> str:

@@ -1308,6 +1308,8 @@ class _FakeLidarr:
         status = await self.import_folder(path, wait)
         return status, 1, 1, []
     has_files = True
+    sibling = None
+    async def sibling_with_files(self, album): return type(self).sibling
     async def album_has_files(self, aid, retries=3, delay=2.0): return type(self).has_files
     async def unmonitor(self, aid): self.unmonitored.append(aid)
     async def aclose(self): pass
@@ -1356,6 +1358,12 @@ _FakeLidarr.has_files = True
 check("cycle: files that land on a different album are not reported as imported",
       _stats["imported"] == 0 and _stats["failed"] == 1
       and _st.data["1"]["result"] == "import-elsewhere")
+_FakeLidarr.has_files, _FakeLidarr.sibling = False, 77
+_stats, _fl, _calls, _st, _ = _cycle([_alb(1)], [(3, 0)])
+_FakeLidarr.has_files, _FakeLidarr.sibling = True, None
+check("cycle: files on a same-title sibling edition count as imported and are never refetched",
+      _stats["imported"] == 1 and _stats["failed"] == 0
+      and _st.data["1"]["result"] == "sibling:77" and not _st.should_try(1, 0))
 _stats, _fl, _calls, _st, _ = _cycle([_alb(1)], [(2, 1)])
 check("cycle: partial album is not imported", not _fl.imports and _st.data["1"]["result"] == "partial")
 # an interrupted earlier download (audio staged, no completion marker) is discarded, then fetched fresh
@@ -1564,6 +1572,27 @@ async def _hf(aid):
 check("album_has_files: waits for Lidarr's counts to update", _aio.run(_hf(9)) is True)
 check("album_has_files: still none after retries -> False", _aio.run(_hf(8)) is False)
 check("album_has_files: no statistics -> trust the import", _aio.run(_hf(7)) is True)
+
+# sibling_with_files: same title + same artist + has files, ignoring case/accents-free punctuation
+def _fake_sib(request):
+    if request.url.path.endswith("/album") and request.url.params.get("artistId") == "4":
+        return _httpx.Response(200, json=[
+            {"id": 1, "title": "\u00c9ternelle", "statistics": {"trackFileCount": 0}},
+            {"id": 2, "title": "\u00c9TERNELLE!", "statistics": {"trackFileCount": 38}},
+            {"id": 3, "title": "Other", "statistics": {"trackFileCount": 9}}])
+    return _httpx.Response(404)
+async def _sib(album):
+    c = _ld.LidarrClient("http://lidarr", "key")
+    c.http._transport = _httpx.MockTransport(_fake_sib)
+    try:
+        return await c.sibling_with_files(album)
+    finally:
+        await c.aclose()
+check("sibling_with_files: finds the same-title twin that has files",
+      _aio.run(_sib({"id": 1, "title": "\u00c9ternelle", "artistId": 4})) == 2)
+check("sibling_with_files: other titles and the wanted record itself are ignored",
+      _aio.run(_sib({"id": 2, "title": "\u00c9ternelle", "artistId": 4})) is None
+      and _aio.run(_sib({"id": 1, "title": "Nope", "artistId": 4})) is None)
 check("cli: lucidarr command + soularr alias registered",
       "lucidarr" in _cli.cli.commands and "soularr" in _cli.cli.commands)
 
