@@ -1,0 +1,19 @@
+[Unit]
+Description=lucidarr - fetch Lidarr's wanted albums from lucida.to
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=@USER@
+EnvironmentFile=/etc/lucidarr.env
+Environment=LUCIDADL_HOME=/var/lib/lucidarr/data
+# Headed Chromium under a virtual display lets Cloudflare access renew with no monitor.
+ExecStart=/usr/bin/xvfb-run -a /opt/lucidarr/.venv/bin/lucida lucidarr \
+  --download-dir @STAGING@ --interval ${LUCIDARR_INTERVAL_MIN} --limit ${LUCIDARR_LIMIT}
+Restart=on-failure
+RestartSec=60
+# Staging files must be group-accessible so Lidarr can move them.
+UMask=0002
+
+[Install]
+WantedBy=multi-user.target
