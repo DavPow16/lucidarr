@@ -80,26 +80,30 @@ def _page(message: str = "", ok: bool = True) -> bytes:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>lucidarr &middot; clearance</title><link rel="icon" href="/logo.svg" type="image/svg+xml">
 <style>
-:root{{color-scheme:light;--green:#009252;--ink:#111;--muted:#5b6b62}}
+:root{{color-scheme:dark;--green:#009252;--panel:#b4dcc3;--field:#6fc79a;--ink:#101510}}
 *{{box-sizing:border-box}}
-body{{margin:0;font:16px/1.5 system-ui,sans-serif;color:var(--ink);background:#f3f7f4}}
+html{{min-height:100%;background:#0b0b0b}}
+body{{margin:0;min-height:100vh;font:16px/1.5 system-ui,sans-serif;color:var(--ink);
+background:linear-gradient(180deg,#303030 0%,#1b1b1b 38%,#0b0b0b 100%) fixed}}
 main{{max-width:36rem;margin:0 auto;padding:1.5rem 16px 3rem}}
-.logo{{display:block;width:min(100%,18rem);height:auto;margin:0 auto 1rem}}
-.card{{background:#fff;border:2px solid var(--ink);border-radius:14px;padding:1.25rem;
-box-shadow:5px 5px 0 var(--green)}}
-h2{{margin:0 0 .25rem;font-size:1.15rem}}.status{{color:var(--muted);margin:0 0 1rem}}
-label{{display:block;font-weight:600;margin:.75rem 0 .25rem}}
+.logo{{display:block;width:min(100%,18rem);height:auto;margin:0 auto 1.25rem}}
+.bar{{background:#3a3a3a;color:#eee;text-align:center;font-weight:700;letter-spacing:.04em;
+text-transform:uppercase;padding:.55rem 1rem;border-radius:18px 18px 0 0}}
+.card{{background:var(--panel);padding:1.25rem;border-radius:0 0 18px 18px}}
+.status{{margin:0 0 1rem;color:#1f3a2b}}
+label{{display:block;font-weight:700;margin:.75rem 0 .25rem}}
 textarea,input{{width:100%;font:inherit;padding:.6rem;border:2px solid var(--ink);
-border-radius:8px;background:#fff;color:var(--ink)}}
+border-radius:6px;background:var(--field);color:var(--ink)}}
 textarea{{height:9rem;font-family:ui-monospace,monospace;font-size:.85rem}}
-textarea:focus,input:focus{{outline:3px solid var(--green);outline-offset:1px}}
-button{{margin-top:1rem;width:100%;font:inherit;font-weight:700;padding:.7rem;
-color:#fff;background:var(--green);border:2px solid var(--ink);border-radius:8px;cursor:pointer}}
-button:hover{{filter:brightness(1.08)}}
-.ok,.err{{margin:0 0 1rem;padding:.6rem .8rem;border-radius:8px;font-weight:600}}
+::placeholder{{color:#25503a}}
+textarea:focus,input:focus{{outline:3px solid #fff;outline-offset:1px}}
+button{{margin-top:1rem;width:100%;font:inherit;font-weight:700;padding:.7rem;color:#fff;
+background:var(--green);border:2px solid var(--ink);border-radius:6px;cursor:pointer}}
+button:hover{{filter:brightness(1.12)}}
+.ok,.err{{margin:0 0 1rem;padding:.6rem .8rem;border-radius:6px;font-weight:700}}
 .ok{{background:#e3f6ea;color:#075c2f}}.err{{background:#fde8ea;color:#9b1020}}
-code{{background:#eef3ef;padding:.05rem .3rem;border-radius:4px}}
-</style><main>{logo}<div class="card"><h2>Cloudflare clearance</h2>
+code{{background:rgba(0,0,0,.12);padding:.05rem .3rem;border-radius:4px}}
+</style><main>{logo}<div class="bar">Cloudflare clearance</div><div class="card">
 <p class="status">{html.escape(status)}</p>{note}
 <form method="post" action="/upload">
 <label for="p">Paste <code>clearance.json</code> from the machine where you ran
