@@ -1270,6 +1270,8 @@ def _cycle(albums, run_results, **over):
 _alb = lambda i: {"id": i, "title": f"T{i}", "artist": {"artistName": "A"}}
 _stats, _fl, _calls, _st, _ = _cycle([_alb(1), _alb(2)], [(3, 0), (3, 0)])
 check("cycle: downloads then imports each album", _stats["imported"] == 2 and len(_fl.imports) == 2)
+check("cycle: Lidarr is asked to scan the album folder, not the staging root",
+      all(p.endswith("/Artists/A/B") for p in _fl.imports))
 _stats, _fl, _calls, _st, _ = _cycle([_alb(i) for i in range(1, 6)], [], remove_on_failure=True)
 check("cycle: outage aborts after 3 failures, records nothing, unmonitors nothing",
       len(_calls) == 3 and not _st.data and not _fl.unmonitored)

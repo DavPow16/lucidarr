@@ -988,10 +988,16 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
                 attempts.record(aid, query, "partial")
                 stats["failed"] += 1
                 continue
-            try:  # one scan of the album's staging folder; Lidarr walks its subfolders
-                status = await client.import_folder(
-                    lidarr.map_path(stage, cfg.download_dir, cfg.remote_dir or None),
-                    wait=cfg.import_timeout)
+            # Scan the folder(s) that hold the audio files directly: Lidarr reads tags from
+            # files in the scanned folder, and cannot parse our staging folder's own name.
+            try:
+                status = "completed"
+                for folder in lidarr.audio_dirs(stage):
+                    status = await client.import_folder(
+                        lidarr.map_path(folder, cfg.download_dir, cfg.remote_dir or None),
+                        wait=cfg.import_timeout)
+                    if status != "completed":
+                        break
             except lidarr.LidarrError as e:
                 log.error("Lidarr import failed for %s: %s", query, e)
                 attempts.record(aid, query, "import-error")
