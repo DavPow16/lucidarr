@@ -17,7 +17,7 @@ Fork-only files (upstream never touches these, so they cannot conflict):
 | `scripts/lucida_token.py` | standalone clearance fetcher (no lucidadl needed) |
 | `scripts/sync-upstream.sh`, `scripts/slim-tree.sh` | merge helper, working-tree slimmer |
 | `.github/workflows/lucidarr-ci.yml` | our CI: both test suites |
-| `deploy/`, `config.ini.example`, `LUCIDARR.md`, `UPSTREAM.md`, `selftest_lucidarr.py` | install, docs, tests |
+| `deploy/`, `config.ini.example`, `.github/README.md`, `UPSTREAM.md`, `selftest_lucidarr.py` | install, docs, tests |
 
 Upstream-owned files we edited (a dozen lines in total; look for "fork hook"):
 
@@ -26,8 +26,10 @@ Upstream-owned files we edited (a dozen lines in total; look for "fork hook"):
 | `lucidadl/cli.py` | 5 lines right after the `ui` command: `from . import lucidarr_cli` (registers our commands) |
 | `lucidadl/downloader.py` | 2 lines in `_query_variants` (simplified search variants) and 4 in `_resolve_url` (wrong-album guard); the imports are inline, so the import block is untouched |
 
-Everything else (README, `pyproject.toml`, `selftest.py`, `matching.py`, ...) is byte-for-byte
-upstream. Keep it that way: new behaviour goes in the fork-only files.
+Two small non-code edits: `LICENSE` (one added copyright line) and `.github/ISSUE_TEMPLATE/config.yml`
+(sends plain-lucidadl questions upstream). Everything else (README.md, `pyproject.toml`,
+`selftest.py`, `matching.py`, ...) is byte-for-byte upstream. Our public README is
+`.github/README.md`, which GitHub shows in preference to the root `README.md`. Keep it that way: new behaviour goes in the fork-only files.
 
 ## Updating
 

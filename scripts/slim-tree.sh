@@ -10,7 +10,9 @@ if [ "${1:-}" = "--off" ]; then git sparse-checkout disable; echo "Full tree res
 
 git sparse-checkout set --no-cone --stdin <<'PATTERNS'
 /*
-!/.github/
+!/.github/workflows/
+!/.github/ISSUE_TEMPLATE/
+!/.github/PULL_REQUEST_TEMPLATE.md
 !/nix/
 !/flake.nix
 !/flake.lock
