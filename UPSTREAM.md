@@ -18,12 +18,12 @@ Fork-only files (upstream never touches these, so they cannot conflict):
 | `scripts/sync-upstream.sh`, `scripts/slim-tree.sh` | merge helper, working-tree slimmer |
 | `deploy/`, `config.ini.example`, `LUCIDARR.md`, `UPSTREAM.md`, `selftest_lucidarr.py` | install, docs, tests |
 
-Upstream-owned files we edited (11 lines in total; look for "fork hook"):
+Upstream-owned files we edited (a dozen lines in total; look for "fork hook"):
 
 | File | Edit |
 |---|---|
-| `lucidadl/cli.py` | 5 lines at the very end: `from . import lucidarr_cli` (registers our commands) |
-| `lucidadl/downloader.py` | import `lucidarr_ext`; 1 line adding simplified search variants; 3 lines calling the wrong-album guard in `_resolve_url` |
+| `lucidadl/cli.py` | 5 lines right after the `ui` command: `from . import lucidarr_cli` (registers our commands) |
+| `lucidadl/downloader.py` | 2 lines in `_query_variants` (simplified search variants) and 4 in `_resolve_url` (wrong-album guard); the imports are inline, so the import block is untouched |
 
 Everything else (README, `pyproject.toml`, `selftest.py`, `matching.py`, ...) is byte-for-byte
 upstream. Keep it that way: new behaviour goes in the fork-only files.
@@ -38,8 +38,8 @@ git push origin main
 then update the LXC as usual (`deploy/update.sh`).
 
 If the merge reports a conflict, it can only be in the two files above (or a file we
-deliberately changed later). In `cli.py` keep upstream's code and re-add the 5-line hook at
-the end; in `downloader.py` keep upstream's code and re-apply the 4 marked hook lines.
+deliberately changed later). In `cli.py` keep upstream's code and re-add the 5-line hook after the
+`ui` command; in `downloader.py` keep upstream's code and re-apply the marked hook lines.
 Then `python selftest.py && python selftest_lucidarr.py`.
 
 If an upstream release *changes the function a hook calls* (e.g. renames

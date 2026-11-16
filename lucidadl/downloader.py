@@ -14,7 +14,7 @@ import re
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from . import lucidarr_ext, matching, organize, progress, transcode, utils
+from . import matching, organize, progress, transcode, utils
 from .api import LucidaClient, LucidaError, FALLBACK_SERVICES, normalize_service, _long
 from .models import FailedItem
 
@@ -36,7 +36,8 @@ def _query_variants(line: str) -> List[str]:
                      f"{title} {primary}" if primary else ""):
             if cand:
                 out.append(cand)
-    out += lucidarr_ext.simplified_variants(out)  # fork hook (ellipsis/curly quotes)
+    from . import lucidarr_ext  # fork hook: ellipsis/curly-quote search variants
+    out += lucidarr_ext.simplified_variants(out)
     seen, uniq = set(), []
     for v in out:
         if v and v.lower() not in seen:
@@ -72,9 +73,10 @@ async def _resolve_url(client: LucidaClient, line: str, service: str, kind: str,
                 min_score=5.5 if explicit_artist else None,
                 min_margin=0.25 if explicit_artist else 0.0,
             )
-            if (url and kind == "album" and explicit_artist  # fork hook: wrong-album guard
-                    and not lucidarr_ext.album_title_ok(line, items, url, log, quiet)):
-                url = None
+            if url and kind == "album" and explicit_artist:  # fork hook: wrong-album guard
+                from . import lucidarr_ext
+                if not lucidarr_ext.album_title_ok(line, items, url, log, quiet):
+                    url = None
             if not url:
                 uncertain = uncertain or explicit_artist
                 continue

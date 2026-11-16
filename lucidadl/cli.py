@@ -248,6 +248,11 @@ def ui_cmd():
     tui.run()
 
 
+# Fork hook: our commands (lucidarr, web, push-clearance) live in lucidarr_cli.py; importing
+# it registers them on the group above. Placed here, away from where upstream adds commands.
+from . import lucidarr_cli  # noqa: E402,F401  (see UPSTREAM.md)
+
+
 # --- shared async runners ---------------------------------------------------
 
 async def _run(items: List[str], kind: str, service: str, country: Optional[str],
@@ -1115,11 +1120,6 @@ async def _debug(query, service, country, item, headless):
 def debug_cmd(query, service, country, item, headless):
     """(dev) Diagnostic: open a page, capture HTML + screenshot, keep the window open."""
     asyncio.run(_debug(query, service, country, item, headless))
-
-
-# Fork-only commands (lucidarr, web, push-clearance) live in lucidarr_cli.py; importing it
-# here, at the very end, registers them on the group above. See UPSTREAM.md.
-from . import lucidarr_cli  # noqa: E402,F401
 
 
 if __name__ == "__main__":
