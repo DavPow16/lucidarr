@@ -19,6 +19,15 @@ from .api import LucidaClient, LucidaError, FALLBACK_SERVICES, normalize_service
 from .models import FailedItem
 
 
+def _simplify(text: str) -> str:
+    """Strip characters lucida's search chokes on: ellipses ("The Truth Is…") and curly
+    quotes. Returns the text unchanged when it has none of them."""
+    out = (text.replace("\u2026", " ").replace("...", " ")
+           .replace("\u2018", "'").replace("\u2019", "'")
+           .replace("\u201c", '"').replace("\u201d", '"'))
+    return re.sub(r"\s+", " ", out).strip()
+
+
 def _query_variants(line: str) -> List[str]:
     """Search queries to try, specific → loose. lucida/Qobuz often returns nothing for a
     literal "Artist - Title" (niche or multi-artist tracks), but matches the title alone,
@@ -36,6 +45,9 @@ def _query_variants(line: str) -> List[str]:
                      f"{title} {primary}" if primary else ""):
             if cand:
                 out.append(cand)
+    # Same queries again with ellipses/curly quotes simplified, after the originals so
+    # ordinary titles keep exactly the search order they had.
+    out += [_simplify(v) for v in out if _simplify(v) != v]
     seen, uniq = set(), []
     for v in out:
         if v and v.lower() not in seen:

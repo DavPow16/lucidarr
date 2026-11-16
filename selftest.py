@@ -1117,6 +1117,25 @@ _version = _runner.invoke(_cli.cli, ["--version"])
 check("cli: source version matches release metadata",
       _version.exit_code == 0 and "1.4.3" in _version.output)  # x-release-please-version
 
+# ellipsis / curly-quote titles get simplified search variants (after the originals)
+_ev = _qv("Theory of a Deadman - The Truth Is\u2026")
+check("search: ellipsis title keeps the original query first",
+      _ev[0] == "Theory of a Deadman - The Truth Is\u2026")
+check("search: ellipsis title also tries it without the ellipsis",
+      "Theory of a Deadman - The Truth Is" in _ev and "The Truth Is" in _ev
+      and "Theory of a Deadman The Truth Is" in _ev)
+check("search: ASCII '...' and curly quotes are simplified too",
+      "Artist - Don't Stop" in _qv("Artist - Don\u2019t Stop")
+      and "Artist - Wait" in _qv("Artist - Wait..."))
+check("search: ordinary titles get no extra variants",
+      _qv("Daft Punk - Discovery") == ["Daft Punk - Discovery", "Discovery",
+                                       "Daft Punk Discovery", "Discovery Daft Punk"])
+check("matching: an ellipsis title matches its '...' / bare form",
+      matching.pick_best("Theory of a Deadman - The Truth Is\u2026", [
+          {"title": "The Truth Is...", "artist": "Theory of a Deadman", "url": "u1"},
+          {"title": "Gasoline", "artist": "Theory of a Deadman", "url": "u2"}],
+          require_artist=True, min_score=5.5, min_margin=0.25) == "u1")
+
 # --- Lidarr / Soularr-style integration ---
 import json as _json
 import os as _os2
