@@ -1339,6 +1339,10 @@ with _tmp2.TemporaryDirectory() as _wd, _p2.object(
     _u = f"http://127.0.0.1:{_port}"
     try:
         check("web: page loads", _httpx.get(_u + "/").status_code == 200)
+        _lg = _httpx.get(_u + "/logo.svg")
+        check("web: logo served as SVG", _lg.status_code == 200
+              and _lg.headers["content-type"] == "image/svg+xml" and b"<svg" in _lg.content
+              and b"<script" not in _lg.content)
         check("web: wrong password refused, nothing saved",
               _httpx.post(_u + "/upload", data={"password": "no", "pasted":
                           '{"cf_clearance":"x","ua":"U"}'}).status_code == 403

@@ -13,6 +13,7 @@ import hmac
 import html
 import json
 import time
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional, Tuple
 from urllib.parse import parse_qs
@@ -20,6 +21,10 @@ from urllib.parse import parse_qs
 from . import session
 
 MAX_BODY = 16 * 1024
+try:
+    LOGO = (Path(__file__).parent / "assets" / "lucidarr.svg").read_bytes()
+except OSError:
+    LOGO = b""
 
 
 class BadSubmission(ValueError):
@@ -70,20 +75,38 @@ def _page(message: str = "", ok: bool = True) -> bytes:
         status = "No clearance is saved yet."
     note = (f'<p class="{"ok" if ok else "err"}">{html.escape(message)}</p>'
             if message else "")
+    logo = '<img class="logo" src="/logo.svg" alt="lucidarr">' if LOGO else "<h1>lucidarr</h1>"
     return f"""<!doctype html><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>lucidarr clearance</title>
-<style>body{{font:16px system-ui;max-width:42rem;margin:2rem auto;padding:0 1rem}}
-textarea,input{{width:100%;box-sizing:border-box;font:inherit;margin:.25rem 0 1rem}}
-textarea{{height:9rem;font-family:monospace}}.ok{{color:#0a7d2c}}.err{{color:#b00020}}
-button{{font:inherit;padding:.5rem 1.2rem}}</style>
-<h1>lucidarr &mdash; Cloudflare clearance</h1><p>{html.escape(status)}</p>{note}
+<title>lucidarr &middot; clearance</title><link rel="icon" href="/logo.svg" type="image/svg+xml">
+<style>
+:root{{color-scheme:light;--green:#009252;--ink:#111;--muted:#5b6b62}}
+*{{box-sizing:border-box}}
+body{{margin:0;font:16px/1.5 system-ui,sans-serif;color:var(--ink);background:#f3f7f4}}
+main{{max-width:36rem;margin:0 auto;padding:1.5rem 16px 3rem}}
+.logo{{display:block;width:min(100%,18rem);height:auto;margin:0 auto 1rem}}
+.card{{background:#fff;border:2px solid var(--ink);border-radius:14px;padding:1.25rem;
+box-shadow:5px 5px 0 var(--green)}}
+h2{{margin:0 0 .25rem;font-size:1.15rem}}.status{{color:var(--muted);margin:0 0 1rem}}
+label{{display:block;font-weight:600;margin:.75rem 0 .25rem}}
+textarea,input{{width:100%;font:inherit;padding:.6rem;border:2px solid var(--ink);
+border-radius:8px;background:#fff;color:var(--ink)}}
+textarea{{height:9rem;font-family:ui-monospace,monospace;font-size:.85rem}}
+textarea:focus,input:focus{{outline:3px solid var(--green);outline-offset:1px}}
+button{{margin-top:1rem;width:100%;font:inherit;font-weight:700;padding:.7rem;
+color:#fff;background:var(--green);border:2px solid var(--ink);border-radius:8px;cursor:pointer}}
+button:hover{{filter:brightness(1.08)}}
+.ok,.err{{margin:0 0 1rem;padding:.6rem .8rem;border-radius:8px;font-weight:600}}
+.ok{{background:#e3f6ea;color:#075c2f}}.err{{background:#fde8ea;color:#9b1020}}
+code{{background:#eef3ef;padding:.05rem .3rem;border-radius:4px}}
+</style><main>{logo}<div class="card"><h2>Cloudflare clearance</h2>
+<p class="status">{html.escape(status)}</p>{note}
 <form method="post" action="/upload">
-<label>Paste <code>clearance.json</code> from the machine where you ran
+<label for="p">Paste <code>clearance.json</code> from the machine where you ran
 <code>lucida setup</code></label>
-<textarea name="pasted" placeholder='{{"cf_clearance": "...", "ua": "..."}}'></textarea>
-<label>Password</label><input type="password" name="password" required>
-<button type="submit">Upload</button></form>""".encode()
+<textarea id="p" name="pasted" placeholder='{{"cf_clearance": "...", "ua": "..."}}'></textarea>
+<label for="pw">Password</label><input id="pw" type="password" name="password" required>
+<button type="submit">Upload</button></form></div></main>""".encode()
 
 
 def make_handler(password: str):
@@ -114,8 +137,11 @@ def make_handler(password: str):
             return self.rfile.read(n)
 
         def do_GET(self):
-            if self.path.split("?")[0] == "/":
+            route = self.path.split("?")[0]
+            if route == "/":
                 self._send(200, _page())
+            elif route == "/logo.svg" and LOGO:
+                self._send(200, LOGO, "image/svg+xml")
             else:
                 self._send(404, b"not found", "text/plain")
 

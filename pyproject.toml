@@ -53,3 +53,6 @@ Changelog = "https://github.com/Jude-A/lucidadl/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 packages = ["lucidadl"]
+
+[tool.setuptools.package-data]
+lucidadl = ["assets/*.svg"]
