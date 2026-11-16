@@ -52,6 +52,12 @@ check("album title: edition labels are ignored",
       _ta("Theory of a Deadman - Scars & Souvenirs", {"title": "Scars & Souvenirs (Special Edition)"})
       and _ta("Daft Punk - Discovery", {"title": "Discovery (Deluxe Edition)"})
       and _ta("A - Abbey Road", {"title": "Abbey Road (2019 Remastered)"}))
+check("album title: anniversary ordinals are edition labels (Dr. Feelgood 35th Anniversary)",
+      _ta("M\u00f6tley Cr\u00fce - Dr. Feelgood", {"title": "Dr. Feelgood (35th Anniversary)"})
+      and _ta("A - Thriller", {"title": "Thriller (25th Anniversary Edition)"})
+      and _ta("A - Abbey Road", {"title": "Abbey Road (50th Anniversary Super Deluxe)"})
+      and not _ta("A - Thriller", {"title": "Thriller 2"})
+      and not _ta("A - Dr. Feelgood", {"title": "Dr. Feelgood Live in 1989"}))
 check("album title: exact and case/punctuation variants pass",
       _ta("Nickelback - Dark Horse", {"title": "Dark Horse"})
       and _ta("Tom Cardy - The Dancefloor at the End of the Universe",

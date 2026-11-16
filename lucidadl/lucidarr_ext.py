@@ -42,10 +42,11 @@ def title_agrees(query: str, item: Dict[str, str], min_cover: float = 0.8) -> bo
     most words ("Christmas With Elvis Presley" vs "Elvis Presley Christmas Duets").
     Here at least ``min_cover`` of the wanted title's words must appear in the result,
     and the result may add only a few words of its own (edition labels such as
-    "Deluxe" or "Special Edition", and bare years, never count)."""
+    "Deluxe" or "Special Edition", years and ordinals like "35th", never count)."""
     def words(text: str) -> set:
+        # drop edition labels, bare years ("2019 Remaster") and ordinals ("35th Anniversary")
         return {w for w in _tokens(text) - EDITION_WORDS
-                if not (len(w) == 4 and w.isdigit())}
+                if not (len(w) == 4 and w.isdigit()) and not re.fullmatch(r"\d+(st|nd|rd|th)", w)}
 
     _, wanted = _split_query(query)
     wt = words(wanted)
