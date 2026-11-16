@@ -1136,6 +1136,36 @@ check("matching: an ellipsis title matches its '...' / bare form",
           {"title": "Gasoline", "artist": "Theory of a Deadman", "url": "u2"}],
           require_artist=True, min_score=5.5, min_margin=0.25) == "u1")
 
+# album title agreement: a different album by the same artist must not pass
+_ta = matching.title_agrees
+check("album title: 'Christmas With Elvis Presley' rejects 'Elvis Presley Christmas Duets'",
+      not _ta("Elvis Presley - Christmas With Elvis Presley", {"title": "Elvis Presley Christmas Duets"}))
+check("album title: edition labels are ignored",
+      _ta("Theory of a Deadman - Scars & Souvenirs", {"title": "Scars & Souvenirs (Special Edition)"})
+      and _ta("Daft Punk - Discovery", {"title": "Discovery (Deluxe Edition)"})
+      and _ta("A - Abbey Road", {"title": "Abbey Road (2019 Remastered)"}))
+check("album title: exact and case/punctuation variants pass",
+      _ta("Nickelback - Dark Horse", {"title": "Dark Horse"})
+      and _ta("Tom Cardy - The Dancefloor at the End of the Universe",
+              {"title": "The Dancefloor At The End Of The Universe"})
+      and _ta("Mac DeMarco - One Wayne G", {"title": "One Wayne G"}))
+check("album title: unrelated or much longer titles fail",
+      not _ta("A - Conquest", {"title": "Greatest Hits"})
+      and not _ta("A - Live at Wembley", {"title": "Live at Wembley Stadium 1986 Concert"}))
+import asyncio as _aio3
+from lucidadl.downloader import _resolve_url as _ru
+class _SearchStub:
+    def __init__(self, items): self.items = items
+    async def search(self, q, svc): return {"albums": self.items, "tracks": []}
+_stub = _SearchStub([{"title": "Elvis Presley Christmas Duets", "artist": "Elvis Presley", "url": "https://x/duets"}])
+check("resolve: a different album by the same artist is not downloaded",
+      _aio3.run(_ru(_stub, "Elvis Presley - Christmas With Elvis Presley", "qobuz", "album",
+                    lambda *a, **k: None, False, True)) is None)
+_stub = _SearchStub([{"title": "Dark Horse", "artist": "Nickelback", "url": "https://x/dh"}])
+check("resolve: the right album still resolves",
+      _aio3.run(_ru(_stub, "Nickelback - Dark Horse", "qobuz", "album",
+                    lambda *a, **k: None, False, True)) == "https://x/dh")
+
 # --- Lidarr / Soularr-style integration ---
 import json as _json
 import os as _os2

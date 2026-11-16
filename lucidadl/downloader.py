@@ -83,6 +83,15 @@ async def _resolve_url(client: LucidaClient, line: str, service: str, kind: str,
                 min_score=5.5 if explicit_artist else None,
                 min_margin=0.25 if explicit_artist else 0.0,
             )
+            if url and kind == "album" and explicit_artist:
+                # A different album by the same artist can score well; insist the title
+                # really names the wanted album.
+                picked = next((it for it in items if it.get("url") == url), {})
+                if not matching.title_agrees(line, picked):
+                    if not quiet:
+                        log(f"  ↳ rejected \"{picked.get('title', '?')}\": title differs "
+                            f"from the wanted album")
+                    url = None
             if not url:
                 uncertain = uncertain or explicit_artist
                 continue
