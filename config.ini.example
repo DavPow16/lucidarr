@@ -49,7 +49,8 @@ remove_wanted_on_failure = False
 # Hours before an album that failed is attempted again (0 = every run).
 retry_after_hours = 24
 # Skip wanted albums whose title contains any of these words. Case-insensitive.
-title_blacklist = Word1,word2
+# e.g. title_blacklist = karaoke,tribute   (substring match on the album title)
+title_blacklist =
 
 [Logging]
 # Passed to Python's logging.basicConfig().

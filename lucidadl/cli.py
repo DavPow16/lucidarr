@@ -878,11 +878,40 @@ def playlist_file_cmd(file, name, check_matches, service, country, downscale, ou
 
 async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
     import logging
+    import shutil
     from . import lidarr
     log = logging.getLogger("lucidarr")
     stats = {"wanted": 0, "tried": 0, "imported": 0, "failed": 0, "skipped": 0}
+    root = os.path.abspath(cfg.download_dir)
+
+    # An outage on the lucida side must never look like "album not found": check access
+    # first, so a dead Cloudflare session aborts the cycle instead of marking albums.
+    if not dry_run and not load_clearance()[1]:
+        try:
+            await acquire_clearance(hidden=cfg.hidden)
+        except Exception as e:
+            raise lidarr.LidarrError(
+                f"lucida.to access is not ready ({e}); run `lucida setup`.") from e
+
     client = lidarr.LidarrClient(cfg.url, cfg.api_key)
     attempts = lidarr.AttemptState()
+    lucida_ok = False   # set once any download succeeds this cycle (lucida demonstrably works)
+    pending = []        # failures we do not trust yet: (album id, query, reason)
+
+    async def settle() -> None:
+        """Record untrusted failures once lucida is proven to work (and only then
+        unmonitor), so an outage cannot burn through the wanted list."""
+        for aid_, q_, why in pending:
+            attempts.record(aid_, q_, why)
+            if cfg.remove_on_failure and why == "no-download":
+                try:
+                    await client.unmonitor(aid_)
+                    lidarr.log_failure(q_)
+                    log.warning("Unmonitored %s (listed in %s)", q_, lidarr.FAILURE_LIST_PATH)
+                except lidarr.LidarrError as e:
+                    log.error("Could not unmonitor %s: %s", q_, e)
+        pending.clear()
+
     try:
         log.info("Connected to Lidarr %s", await client.check())
         if cfg.search_type == "all":
@@ -918,32 +947,55 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
             if dry_run:
                 log.info("Would fetch: %s", query)
                 continue
-            log.info("Fetching: %s", query)
             stage = lidarr.staging_dir(cfg.download_dir, album)
-            result = await _run([query], "album", cfg.service, cfg.country, "original",
-                                stage, cfg.hidden, cfg.jobs, dedup=False, organize_on=True,
-                                to_fmt=cfg.to_fmt, bitrate=cfg.bitrate, save_failures=False)
-            folders = lidarr.audio_dirs(stage)
-            if result[0]["ok"] == 0 or not folders:
-                log.warning("Nothing downloaded for: %s", query)
-                attempts.record(aid, query, "no-download")
-                stats["failed"] += 1
-                lidarr.prune_empty(stage)
-                if cfg.remove_on_failure:
-                    await client.unmonitor(aid)
-                    lidarr.log_failure(query)
-                    log.warning("Unmonitored %s (see %s)", query, lidarr.FAILURE_LIST_PATH)
-                continue
+            partial = False
+            if lidarr.audio_dirs(stage):
+                # Left over from an earlier attempt: re-scan it, never download on top.
+                log.info("Re-scanning files staged earlier: %s", query)
+            else:
+                log.info("Fetching: %s", query)
+                result = await _run([query], "album", cfg.service, cfg.country, "original",
+                                    stage, cfg.hidden, cfg.jobs, dedup=False,
+                                    organize_on=True, to_fmt=cfg.to_fmt,
+                                    bitrate=cfg.bitrate, save_failures=False)
+                if result[0]["ok"] == 0 or not lidarr.audio_dirs(stage):
+                    log.warning("Nothing downloaded for: %s", query)
+                    stats["failed"] += 1
+                    lidarr.prune_empty(stage)
+                    pending.append((aid, query, "no-download"))
+                    if lucida_ok:
+                        await settle()
+                    elif len(pending) >= 3:
+                        log.error("3 albums in a row returned nothing and none succeeded "
+                                  "this cycle; assuming a lucida.to/Cloudflare problem. "
+                                  "Aborting without recording them.")
+                        pending.clear()
+                        break
+                    continue
+                lucida_ok = True
+                await settle()
+                partial = result[0]["fail"] > 0
             if cfg.disable_sync:
                 log.info("disable_sync: left in %s for manual import", stage)
+                attempts.record(aid, query, "staged")
                 continue
-            status = "completed"
-            for folder in folders:
+            if partial:
+                log.warning("Incomplete download for %s; discarding it to retry cleanly.",
+                            query)
+                if os.path.abspath(stage).startswith(root + os.sep):
+                    shutil.rmtree(stage, ignore_errors=True)
+                attempts.record(aid, query, "partial")
+                stats["failed"] += 1
+                continue
+            try:  # one scan of the album's staging folder; Lidarr walks its subfolders
                 status = await client.import_folder(
-                    lidarr.map_path(folder, cfg.download_dir, cfg.remote_dir or None),
+                    lidarr.map_path(stage, cfg.download_dir, cfg.remote_dir or None),
                     wait=cfg.import_timeout)
-                if status != "completed":
-                    break
+            except lidarr.LidarrError as e:
+                log.error("Lidarr import failed for %s: %s", query, e)
+                attempts.record(aid, query, "import-error")
+                stats["failed"] += 1
+                break  # Lidarr is unhappy; don't pile more albums on it this cycle
             lidarr.prune_empty(stage)
             if status == "completed" and not lidarr.audio_dirs(stage):
                 log.info("Imported into Lidarr: %s", query)
@@ -954,6 +1006,8 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
                             status, stage)
                 attempts.record(aid, query, f"import-{status}")
                 stats["failed"] += 1
+        for aid_, q_, why in pending:  # few failures, nothing proven: cooldown only
+            attempts.record(aid_, q_, why)
     finally:
         await client.aclose()
     return stats
@@ -1019,13 +1073,26 @@ def lucidarr_cmd(config_path, **opts):
     log.info("Config: %s", path or "(defaults)")
     cfg.download_dir = os.path.abspath(
         cfg.download_dir or os.path.join(DEFAULT_OUT, ".lidarr"))
-    os.makedirs(cfg.download_dir, exist_ok=True)
+    try:
+        os.makedirs(cfg.download_dir, exist_ok=True)
+        probe = os.path.join(cfg.download_dir, f".lucidarr-write-{os.getpid()}")
+        open(probe, "w").close()
+        os.remove(probe)
+    except OSError as e:
+        click.secho(f"✗ Staging folder {cfg.download_dir} is not writable: {e}", fg="red")
+        raise click.exceptions.Exit(1)
     cfg.interval = opts.get("interval") or 0
     while True:
         try:
             stats = asyncio.run(_lucidarr_cycle(cfg, dry_run))
         except lidarr.LidarrError as e:
             log.error("%s", e)
+            if not cfg.interval:
+                raise click.exceptions.Exit(1)
+        except Exception:
+            # An unexpected error must not turn the service into a restart loop that
+            # ignores --interval: log it and wait for the next cycle.
+            log.exception("Cycle crashed")
             if not cfg.interval:
                 raise click.exceptions.Exit(1)
         else:

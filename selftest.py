@@ -1216,6 +1216,98 @@ with _tmp2.TemporaryDirectory() as _d:
     check("incrementing page starts at 1 and wraps",
           _st2.next_page(3) == 1 and (_st2.set_page(3) or _st2.next_page(3)) == 3
           and (_st2.set_page(9) or _st2.next_page(3)) == 1)
+
+# --- lucidarr cycle behaviour (mocked Lidarr + downloader) ---
+import logging as _lg2
+from types import SimpleNamespace as _NS
+from unittest.mock import patch as _p2
+
+_RealState = _ld.AttemptState
+
+class _FakeLidarr:
+    instances = []
+    def __init__(self, url, key):
+        self.unmonitored, self.imports = [], []
+        _FakeLidarr.instances.append(self)
+    async def check(self): return "3.1"
+    async def wanted_page(self, cutoff, page, size):
+        return {"records": _FakeLidarr.albums, "totalRecords": len(_FakeLidarr.albums)}
+    async def wanted(self, cutoff=False): return _FakeLidarr.albums
+    async def import_folder(self, path, wait=300): 
+        self.imports.append(path)
+        for f in _FakeLidarr.import_effect: f(path)
+        return "completed"
+    async def unmonitor(self, aid): self.unmonitored.append(aid)
+    async def aclose(self): pass
+
+def _cycle(albums, run_results, **over):
+    """Run one cycle; run_results = list of (ok, fail) per _run call, 'files' decides audio."""
+    with _tmp2.TemporaryDirectory() as d:
+        cfg = _ld.resolve(_ld.load_config(None), {"limit": 10, "search_type": "first_page",
+                                                  "retry_after": 24, **over})
+        cfg.download_dir = d
+        _FakeLidarr.albums = albums
+        _FakeLidarr.import_effect = [lambda path: [_os2.remove(_os2.path.join(r, f))
+                                      for r, _, fs in _os2.walk(path) for f in fs]]
+        calls = []
+        async def fake_run(items, kind, svc, cc, ds, out, *a, **k):
+            ok, fail = run_results[len(calls)] if len(calls) < len(run_results) else (0, 1)
+            calls.append(items[0])
+            if ok:
+                _os2.makedirs(out + "/Artists/A/B", exist_ok=True)
+                open(out + "/Artists/A/B/01.flac", "w").close()
+            return {"ok": ok, "skip": 0, "fail": fail}, []
+        _FakeLidarr.instances.clear()
+        with _p2.object(_ld, "LidarrClient", _FakeLidarr), \
+             _p2.object(_cli, "_run", fake_run), \
+             _p2.object(_cli, "load_clearance", lambda: (None, "ua")), \
+             _p2.object(_ld, "AttemptState", lambda: _RealState(d + "/st.json")), \
+             _p2.object(_ld, "FAILURE_LIST_PATH", d + "/fail.txt"):
+            stats = _aio.run(_cli._lucidarr_cycle(cfg))
+            st = _RealState(d + "/st.json")
+        return stats, _FakeLidarr.instances[0], calls, st, d
+
+_alb = lambda i: {"id": i, "title": f"T{i}", "artist": {"artistName": "A"}}
+_stats, _fl, _calls, _st, _ = _cycle([_alb(1), _alb(2)], [(3, 0), (3, 0)])
+check("cycle: downloads then imports each album", _stats["imported"] == 2 and len(_fl.imports) == 2)
+_stats, _fl, _calls, _st, _ = _cycle([_alb(i) for i in range(1, 6)], [], remove_on_failure=True)
+check("cycle: outage aborts after 3 failures, records nothing, unmonitors nothing",
+      len(_calls) == 3 and not _st.data and not _fl.unmonitored)
+_stats, _fl, _calls, _st, _ = _cycle([_alb(1), _alb(2)], [(0, 1), (3, 0)], remove_on_failure=True)
+check("cycle: failure before a success is settled and unmonitored once lucida proves OK",
+      _fl.unmonitored == [1] and "1" in _st.data and _stats["imported"] == 1)
+_stats, _fl, _calls, _st, _ = _cycle([_alb(1)], [(2, 1)])
+check("cycle: partial album is not imported", not _fl.imports and _st.data["1"]["result"] == "partial")
+_stats, _fl, _calls, _st, _ = _cycle([_alb(1)], [(3, 0)], disable_sync=True)
+check("cycle: disable_sync records 'staged', no import",
+      not _fl.imports and _st.data["1"]["result"] == "staged")
+
+class _Boom(_FakeLidarr):
+    async def import_folder(self, path, wait=300):
+        raise _ld.LidarrError("down")
+with _p2.object(_ld, "LidarrClient", _Boom), _tmp2.TemporaryDirectory() as _d3:
+    _FakeLidarr.albums = [_alb(1), _alb(2)]
+    _cfg = _ld.resolve(_ld.load_config(None), {"search_type": "first_page", "retry_after": 24})
+    _cfg.download_dir = _d3
+    _n = []
+    async def _fr(items, kind, svc, cc, ds, out, *a, **k):
+        _n.append(1); _os2.makedirs(out + "/x", exist_ok=True)
+        open(out + "/x/1.flac", "w").close()
+        return {"ok": 1, "skip": 0, "fail": 0}, []
+    with _p2.object(_cli, "_run", _fr), _p2.object(_cli, "load_clearance", lambda: (None, "u")), \
+         _p2.object(_ld, "AttemptState", lambda: _RealState(_d3 + "/s.json")):
+        _bs = _aio.run(_cli._lucidarr_cycle(_cfg))
+    check("cycle: Lidarr import error is recorded and stops the cycle",
+          len(_n) == 1 and _bs["failed"] == 1
+          and _RealState(_d3 + "/s.json").data["1"]["result"] == "import-error")
+for _bad in ({"limit": 0}, {"jobs": 0}):
+    try:
+        _ld.resolve(_ld.load_config(None), _bad); _ok = False
+    except _ld.LidarrError:
+        _ok = True
+    check(f"config: rejects {_bad}", _ok)
+check("find_config: missing explicit path is not silently replaced",
+      _ld.find_config("/definitely/not/here.ini") is None)
 check("cli: lucidarr command + soularr alias registered",
       "lucidarr" in _cli.cli.commands and "soularr" in _cli.cli.commands)
 

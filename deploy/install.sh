@@ -17,12 +17,15 @@ apt-get install -y python3 python3-venv python3-pip git xvfb xauth
 
 id "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --home-dir "$DATA_DIR" "$APP_USER"
 mkdir -p "$STAGING"
+chown "$APP_USER": "$STAGING" 2>/dev/null || echo "note: could not chown $STAGING (bind mount?) - make sure $APP_USER can write to it"
 
-if [ -d "$APP_DIR/.git" ]; then git -C "$APP_DIR" pull --ff-only; else git clone "$REPO" "$APP_DIR"; fi
+if [ -d "$APP_DIR/.git" ]; then runuser -u "$APP_USER" -- git -C "$APP_DIR" pull --ff-only; else git clone "$REPO" "$APP_DIR"; chown -R "$APP_USER": "$APP_DIR"; fi
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -q -e "$APP_DIR"
-# Chromium + the system libraries it needs (headed mode runs under Xvfb).
-"$APP_DIR/.venv/bin/python" -m playwright install --with-deps chromium
+# Browsers live inside the app dir so the service user (not just root) can launch them.
+export PLAYWRIGHT_BROWSERS_PATH="$APP_DIR/.pw"
+"$APP_DIR/.venv/bin/python" -m playwright install-deps chromium   # system libs (root)
+"$APP_DIR/.venv/bin/python" -m playwright install chromium
 chown -R "$APP_USER": "$APP_DIR" "$DATA_DIR"
 
 mkdir -p /etc/lucidarr
@@ -40,7 +43,7 @@ Installed. Next:
   2. Make sure $STAGING is writable by '$APP_USER' and readable/movable by Lidarr
      (same path in both LXCs, or set [Lidarr] download_dir in config.ini).
   3. Test one album as the service user:
-       sudo -u $APP_USER bash -c 'LUCIDARR_CONFIG=/etc/lucidarr/config.ini LUCIDADL_HOME=$DATA_DIR/data xvfb-run -a $APP_DIR/.venv/bin/lucida lucidarr \\
+       runuser -u $APP_USER -- env PLAYWRIGHT_BROWSERS_PATH=$APP_DIR/.pw bash -c 'LUCIDARR_CONFIG=/etc/lucidarr/config.ini LUCIDADL_HOME=$DATA_DIR/data xvfb-run -a $APP_DIR/.venv/bin/lucida lucidarr \\
          --limit 1'
   4. systemctl enable --now lucidarr && journalctl -fu lucidarr
 MSG

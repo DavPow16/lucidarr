@@ -9,11 +9,12 @@ Environment=SCRIPT_INTERVAL=3600
 EnvironmentFile=-/etc/lucidarr.env
 Environment=LUCIDARR_CONFIG=/etc/lucidarr/config.ini
 Environment=LUCIDADL_HOME=/var/lib/lucidarr/data
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/lucidarr/.pw
 # Headed Chromium under a virtual display lets Cloudflare access renew with no monitor.
 ExecStart=/usr/bin/xvfb-run -a /opt/lucidarr/.venv/bin/lucida lucidarr \
   --interval ${SCRIPT_INTERVAL}
 Restart=on-failure
-RestartSec=60
+RestartSec=300
 # Staging files must be group-accessible so Lidarr can move them.
 UMask=0002
 

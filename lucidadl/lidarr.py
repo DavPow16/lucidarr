@@ -26,7 +26,8 @@ import httpx
 
 from . import paths, utils
 
-AUDIO_EXTS = (".flac", ".mp3", ".m4a", ".aac", ".opus", ".ogg", ".wav")
+AUDIO_EXTS = (".flac", ".mp3", ".m4a", ".aac", ".opus", ".ogg", ".wav", ".alac",
+              ".aiff", ".aif")
 STATE_PATH = str(paths.DATA_DIR / "lidarr-state.json")
 _DONE_STATES = {"completed", "failed", "aborted", "cancelled", "orphaned"}
 
@@ -58,7 +59,9 @@ DEFAULTS: Dict[str, Dict[str, str]] = {
 
 def find_config(explicit: Optional[str] = None) -> Optional[str]:
     """--config, $LUCIDARR_CONFIG, ./config.ini, then <app data>/config.ini."""
-    for cand in (explicit, os.environ.get("LUCIDARR_CONFIG"),
+    if explicit:
+        return explicit if os.path.isfile(explicit) else None
+    for cand in (os.environ.get("LUCIDARR_CONFIG"),
                  os.path.join(os.getcwd(), "config.ini"),
                  str(paths.DATA_DIR / "config.ini")):
         if cand and os.path.isfile(cand):
@@ -106,6 +109,18 @@ class Settings:
 
 
 def resolve(cp: configparser.ConfigParser, o: Dict[str, Any]) -> Settings:
+    """Validated settings; a bad value is a LidarrError, never a traceback."""
+    try:
+        s = _resolve(cp, o)
+    except (ValueError, TypeError) as e:
+        raise LidarrError(f"Invalid value in config/options: {e}") from e
+    if s.limit < 1 or not 1 <= s.jobs <= 100 or s.import_timeout < 1 or s.retry_after < 0:
+        raise LidarrError("number_of_albums_to_grab and import_timeout must be >= 1, "
+                          "jobs 1-100, retry_after_hours >= 0.")
+    return s
+
+
+def _resolve(cp: configparser.ConfigParser, o: Dict[str, Any]) -> Settings:
     """Precedence: command-line/env override (non-None) > config.ini > default."""
     def pick(key, section, name, conv=str):
         v = o.get(key)
@@ -245,10 +260,13 @@ class AttemptState:
             self.save()
 
     def save(self) -> None:
-        tmp = self.path + f".{os.getpid()}.tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, self.path)
+        try:
+            tmp = self.path + f".{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, self.path)
+        except OSError:
+            pass  # a full disk must not crash the loop; worst case an album is retried
 
 
 # --- Lidarr API client --------------------------------------------------------
@@ -274,7 +292,11 @@ class LidarrClient:
             raise LidarrError(f"Lidarr {method} {url} -> HTTP {code}{hint}") from e
         except httpx.HTTPError as e:
             raise LidarrError(f"Lidarr unreachable: {e}") from e
-        return r.json()
+        try:
+            return r.json()
+        except ValueError as e:
+            raise LidarrError(f"Lidarr {method} {url} returned non-JSON "
+                              f"(check host_url / URL base)") from e
 
     async def check(self) -> str:
         info = await self._request("GET", "/system/status")
@@ -318,12 +340,18 @@ class LidarrClient:
             "name": "DownloadedAlbumsScan", "path": remote_path,
             "importMode": "Move"})
         cid = cmd.get("id")
+        if cid is None:
+            raise LidarrError("Lidarr did not return a command id for the import scan.")
         deadline = time.monotonic() + wait
         status = str(cmd.get("status") or "queued")
         while status.lower() not in _DONE_STATES and time.monotonic() < deadline:
             await asyncio.sleep(poll)
-            status = str((await self._request("GET", f"/command/{cid}"))
-                         .get("status") or status)
+            try:  # a transient poll error must not abandon a scan Lidarr is running
+                status = str((await self._request("GET", f"/command/{cid}"))
+                             .get("status") or status)
+            except LidarrError:
+                if time.monotonic() >= deadline:
+                    raise
         return status.lower()
 
     async def album_has_files(self, album_id: int) -> bool:
