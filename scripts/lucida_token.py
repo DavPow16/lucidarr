@@ -36,6 +36,7 @@ import venv
 import urllib.error
 import urllib.request
 from typing import Optional, Tuple
+from urllib.parse import urlsplit
 
 LUCIDA = "https://lucida.to"
 HOME_DIR = os.environ.get("LUCIDA_TOKEN_HOME") or os.path.join(
@@ -57,6 +58,47 @@ def is_challenge(title: str, html: str) -> bool:
         return True
     h = (html or "").lower()
     return any(m in h for m in _CHALLENGE_BODY)
+
+
+def page_challenged(page) -> bool:
+    """is_challenge() for a live page. While Cloudflare redirects, title()/content() raise
+    ("the page is navigating"); that means "not settled yet", so keep waiting."""
+    try:
+        return is_challenge(page.title(), page.content())
+    except Exception:
+        return True
+
+
+def wait_until_cleared(page, timeout: float) -> bool:
+    """Poll until the page is lucida.to itself (not Cloudflare's interstitial)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not page_challenged(page):
+            try:
+                if urlsplit(page.url).netloc.endswith("lucida.to"):
+                    return True
+            except Exception:
+                pass
+        try:
+            page.wait_for_timeout(1500)
+        except Exception:
+            time.sleep(1.5)
+    return False
+
+
+def read_user_agent(page, tries: int = 5) -> str:
+    """navigator.userAgent, retried: the evaluation can race a final navigation."""
+    last: Optional[Exception] = None
+    for _ in range(tries):
+        try:
+            return page.evaluate("() => navigator.userAgent").replace("HeadlessChrome", "Chrome")
+        except Exception as e:
+            last = e
+            try:
+                page.wait_for_timeout(1000)
+            except Exception:
+                time.sleep(1)
+    raise RuntimeError(f"could not read the browser's user agent: {last}")
 
 
 def build_payload(cf: Optional[str], ua: str, now: Optional[float] = None) -> dict:
@@ -172,16 +214,11 @@ def fetch_clearance(profile: str, timeout: int, hidden: bool, channel: Optional[
             page.set_default_timeout(60_000)
             page.goto(LUCIDA + "/", wait_until="domcontentloaded")
             print("Waiting for Cloudflare... complete the check in the window if asked.")
-            deadline = time.time() + timeout
-            while time.time() < deadline:
-                if not is_challenge(page.title(), page.content()):
-                    break
-                page.wait_for_timeout(1500)
-            else:
+            if not wait_until_cleared(page, timeout):
                 sys.exit(f"Cloudflare was not cleared within {timeout}s.")
             cookies = ctx.cookies(LUCIDA)
             cf = next((c["value"] for c in cookies if c["name"] == "cf_clearance"), None)
-            ua = page.evaluate("() => navigator.userAgent").replace("HeadlessChrome", "Chrome")
+            ua = read_user_agent(page)
             return cf, ua
         finally:
             ctx.close()

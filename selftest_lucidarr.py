@@ -571,6 +571,45 @@ with _p2.object(_tok, "have_playwright", lambda: True):
 check("token script: private venv lives under its own home dir",
       _tok.venv_python().startswith(_tok.VENV_DIR) and _tok.VENV_DIR.startswith(_tok.HOME_DIR))
 
+# token script: robustness against Cloudflare's mid-navigation errors
+class _FakePage:
+    """title()/content() raise while 'navigating', then show the challenge, then lucida."""
+    def __init__(self, script, url="https://lucida.to/"):
+        self.script, self.i, self.url = list(script), 0, url
+        self.ua_fail = 0
+    def _state(self):
+        st = self.script[min(self.i, len(self.script) - 1)]
+        return st
+    def title(self):
+        st = self._state()
+        if st == "navigating": raise RuntimeError("Page.content: page is navigating")
+        return "Just a moment..." if st == "challenge" else "lucida"
+    def content(self): return "<html>x</html>"
+    def wait_for_timeout(self, ms): self.i += 1
+    def evaluate(self, js):
+        if self.ua_fail > 0:
+            self.ua_fail -= 1; raise RuntimeError("Execution context was destroyed")
+        return "HeadlessChrome/1 Safari"
+_pg = _FakePage(["navigating", "challenge", "navigating", "challenge", "ok"])
+check("token script: survives 'page is navigating' errors and waits for the real page",
+      _tok.wait_until_cleared(_pg, timeout=30) is True and _pg.i >= 4)
+check("token script: a mid-navigation error counts as 'not cleared yet'",
+      _tok.page_challenged(_FakePage(["navigating"])) is True
+      and _tok.page_challenged(_FakePage(["ok"])) is False)
+check("token script: stuck on the challenge times out cleanly",
+      _tok.wait_until_cleared(_FakePage(["challenge"]), timeout=0.05) is False)
+check("token script: cleared title but still on another host is not accepted",
+      _tok.wait_until_cleared(_FakePage(["ok"], url="https://challenges.example/"), timeout=0.05) is False)
+_pg = _FakePage(["ok"]); _pg.ua_fail = 2
+check("token script: user-agent read retries a racing navigation and fixes HeadlessChrome",
+      _tok.read_user_agent(_pg) == "Chrome/1 Safari")
+_pg = _FakePage(["ok"]); _pg.ua_fail = 99
+try:
+    _tok.read_user_agent(_pg, tries=2); _uae = ""
+except RuntimeError as _e:
+    _uae = str(_e)
+check("token script: gives up with a clear error if the user agent never reads", "user agent" in _uae)
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S): {fails}")
