@@ -1024,9 +1024,22 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
                 break  # Lidarr is unhappy; don't pile more albums on it this cycle
             lidarr.prune_empty(stage)
             if status == "completed" and not lidarr.audio_dirs(stage):
-                log.info("Imported into Lidarr: %s", query)
-                attempts.forget(aid)
-                stats["imported"] += 1
+                landed = True
+                if not cfg.cutoff:  # a cutoff album already has files, nothing to verify
+                    try:
+                        landed = await client.album_has_files(aid)
+                    except lidarr.LidarrError:
+                        landed = True  # cannot verify; trust the import
+                if landed:
+                    log.info("Imported into Lidarr: %s", query)
+                    attempts.forget(aid)
+                    stats["imported"] += 1
+                else:
+                    log.warning(
+                        "Lidarr took the files but attached them to a DIFFERENT album; "
+                        "%s still has none. Check its History in Lidarr.", query)
+                    attempts.record(aid, query, "import-elsewhere")
+                    stats["failed"] += 1
             else:
                 log.warning("Lidarr did not import it (scan %s); files kept in %s",
                             status, stage)

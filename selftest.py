@@ -1307,6 +1307,8 @@ class _FakeLidarr:
     async def manual_import(self, path, artist_id, album_id, wait=300, poll=3, replace=False):
         status = await self.import_folder(path, wait)
         return status, 1, 1, []
+    has_files = True
+    async def album_has_files(self, aid, retries=3, delay=2.0): return type(self).has_files
     async def unmonitor(self, aid): self.unmonitored.append(aid)
     async def aclose(self): pass
 
@@ -1348,6 +1350,12 @@ check("cycle: outage aborts after 3 failures, records nothing, unmonitors nothin
 _stats, _fl, _calls, _st, _ = _cycle([_alb(1), _alb(2)], [(0, 1), (3, 0)], remove_on_failure=True)
 check("cycle: failure before a success is settled and unmonitored once lucida proves OK",
       _fl.unmonitored == [1] and "1" in _st.data and _stats["imported"] == 1)
+_FakeLidarr.has_files = False
+_stats, _fl, _calls, _st, _ = _cycle([_alb(1)], [(3, 0)])
+_FakeLidarr.has_files = True
+check("cycle: files that land on a different album are not reported as imported",
+      _stats["imported"] == 0 and _stats["failed"] == 1
+      and _st.data["1"]["result"] == "import-elsewhere")
 _stats, _fl, _calls, _st, _ = _cycle([_alb(1)], [(2, 1)])
 check("cycle: partial album is not imported", not _fl.imports and _st.data["1"]["result"] == "partial")
 # an interrupted earlier download (audio staged, no completion marker) is discarded, then fetched fresh
@@ -1534,6 +1542,28 @@ try:
 except _ld.LidarrError:
     _imok = True
 check("config: invalid import_method rejected", _imok)
+
+# album_has_files: counts, retry, and "cannot verify -> trust"
+_cnt = {"n": 0}
+def _fake_stats(request):
+    if request.url.path.endswith("/album"):
+        _cnt["n"] += 1
+        if request.url.params["albumIds"] == "9":
+            return _httpx.Response(200, json=[{"statistics": {"trackFileCount": 0 if _cnt["n"] < 2 else 4}}])
+        if request.url.params["albumIds"] == "8":
+            return _httpx.Response(200, json=[{"statistics": {"trackFileCount": 0}}])
+        return _httpx.Response(200, json=[{"title": "no statistics"}])
+    return _httpx.Response(404)
+async def _hf(aid):
+    c = _ld.LidarrClient("http://lidarr", "key")
+    c.http._transport = _httpx.MockTransport(_fake_stats)
+    try:
+        return await c.album_has_files(aid, retries=3, delay=0.01)
+    finally:
+        await c.aclose()
+check("album_has_files: waits for Lidarr's counts to update", _aio.run(_hf(9)) is True)
+check("album_has_files: still none after retries -> False", _aio.run(_hf(8)) is False)
+check("album_has_files: no statistics -> trust the import", _aio.run(_hf(7)) is True)
 check("cli: lucidarr command + soularr alias registered",
       "lucidarr" in _cli.cli.commands and "soularr" in _cli.cli.commands)
 

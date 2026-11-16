@@ -489,10 +489,22 @@ class LidarrClient:
             "name": "ManualImport", "files": files, "importMode": "move"})
         return await self._wait(cmd, wait, poll), len(files), len(items), reasons
 
-    async def album_has_files(self, album_id: int) -> bool:
-        data = await self._request("GET", "/album", params={"albumIds": album_id})
-        if isinstance(data, list) and data:
-            return int((data[0].get("statistics") or {}).get("trackFileCount") or 0) > 0
+    async def album_has_files(self, album_id: int, retries: int = 3,
+                              delay: float = 2.0) -> bool:
+        """Does Lidarr now hold files for THIS album? (An import can succeed yet attach
+        the files to a different album, e.g. another edition or compilation.)
+        Unknown/absent statistics count as True: if we cannot verify, trust the import."""
+        for attempt in range(max(1, retries)):
+            data = await self._request("GET", "/album", params={"albumIds": album_id})
+            if not (isinstance(data, list) and data):
+                return True
+            stats = data[0].get("statistics")
+            if not isinstance(stats, dict):
+                return True
+            if int(stats.get("trackFileCount") or 0) > 0:
+                return True
+            if attempt + 1 < retries:
+                await asyncio.sleep(delay)  # let Lidarr finish updating its counts
         return False
 
 
