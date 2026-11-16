@@ -874,6 +874,133 @@ def playlist_file_cmd(file, name, check_matches, service, country, downscale, ou
         raise click.exceptions.Exit(1)
 
 
+# --- Lidarr (Soularr-style) integration -------------------------------------
+
+async def _soularr_cycle(url, api_key, download_dir, remote_dir, service, country,
+                         jobs, hidden, to_fmt, bitrate, cutoff, limit, retry_after,
+                         dry_run, wait) -> Dict[str, int]:
+    from . import lidarr
+    stats = {"wanted": 0, "tried": 0, "imported": 0, "failed": 0, "skipped": 0}
+    client = lidarr.LidarrClient(url, api_key)
+    attempts = lidarr.AttemptState()
+    try:
+        version = await client.check()
+        click.secho(f"Connected to Lidarr {version}", fg="cyan")
+        albums = await client.wanted(cutoff=cutoff)
+        stats["wanted"] = len(albums)
+        click.echo(f"{len(albums)} wanted album(s) "
+                   f"({'cutoff unmet' if cutoff else 'missing'}).")
+        for album in albums:
+            if limit and stats["tried"] >= limit:
+                break
+            query, aid = lidarr.album_query(album), album.get("id")
+            if not query or aid is None:
+                continue
+            if not attempts.should_try(aid, retry_after):
+                stats["skipped"] += 1
+                continue
+            if dry_run:
+                click.echo(f"  would fetch: {query}")
+                stats["tried"] += 1
+                continue
+            stats["tried"] += 1
+            click.secho(f"\n▶ {query}", bold=True)
+            stage = lidarr.staging_dir(download_dir, album)
+            result = await _run([query], "album", service, country, "original", stage,
+                                hidden, jobs, dedup=False, organize_on=True,
+                                to_fmt=to_fmt, bitrate=bitrate, save_failures=False)
+            folders = lidarr.audio_dirs(stage)
+            if result[0]["ok"] == 0 or not folders:
+                attempts.record(aid, query, "no-download")
+                stats["failed"] += 1
+                lidarr.prune_empty(stage)
+                continue
+            status = "completed"
+            for folder in folders:
+                status = await client.import_folder(
+                    lidarr.map_path(folder, download_dir, remote_dir), wait=wait)
+                if status != "completed":
+                    break
+            lidarr.prune_empty(stage)
+            if status == "completed" and not lidarr.audio_dirs(stage):
+                click.secho(f"  ✓ imported into Lidarr: {query}", fg="green")
+                attempts.forget(aid)
+                stats["imported"] += 1
+            else:
+                click.secho(f"  ✗ Lidarr did not import it (scan {status}); files kept "
+                            f"in {stage}", fg="yellow")
+                attempts.record(aid, query, f"import-{status}")
+                stats["failed"] += 1
+    finally:
+        await client.aclose()
+    return stats
+
+
+@cli.command("soularr")
+@click.option("--lidarr-url", envvar="LIDARR_URL", default="http://localhost:8686",
+              show_default=True, help="Lidarr base URL (env LIDARR_URL).")
+@click.option("--api-key", envvar="LIDARR_API_KEY", required=True,
+              help="Lidarr API key (env LIDARR_API_KEY).")
+@click.option("--download-dir", default=None,
+              help="Staging folder Lidarr can read (def: <music folder>/.lidarr).")
+@click.option("--remote-dir", envvar="LIDARR_REMOTE_DIR", default=None,
+              help="Same folder as Lidarr sees it (Docker/NAS path mapping).")
+@click.option("--cutoff", is_flag=True,
+              help="Fetch cutoff-unmet albums instead of missing ones.")
+@click.option("--limit", type=click.IntRange(1), default=None,
+              help="Max albums to attempt per cycle.")
+@click.option("--interval", type=click.IntRange(0), default=0,
+              help="Minutes between cycles; 0 = run once and exit.")
+@click.option("--retry-after", type=float, default=24.0, show_default=True,
+              help="Hours before an album that failed is attempted again.")
+@click.option("--import-timeout", type=int, default=300, show_default=True,
+              help="Seconds to wait for each Lidarr import scan.")
+@click.option("--dry-run", is_flag=True, help="List what would be fetched; download nothing.")
+@click.option("-s", "--service", default="qobuz", help="Lucida source service.")
+@click.option("--country", default=None, help="Country code.")
+@click.option("-j", "--jobs", default=3, type=click.IntRange(1, 100), help="Parallel tracks.")
+@click.option("--to", "to_fmt", default=None, type=click.Choice(transcode.CHOICES),
+              help="Convert locally before import.")
+@click.option("--bitrate", default=None, help="Bitrate for --to.")
+@click.option("--hidden/--visible", "hidden", default=False,
+              help="Off-screen window if a Cloudflare pass is needed.")
+def soularr_cmd(lidarr_url, api_key, download_dir, remote_dir, cutoff, limit, interval,
+                retry_after, import_timeout, dry_run, service, country, jobs, to_fmt,
+                bitrate, hidden):
+    """Soularr-style Lidarr integration: fetch Lidarr's wanted albums from lucida.to.
+
+    Each wanted album is searched as "Artist - Album", downloaded into a private
+    staging folder, then imported by Lidarr (DownloadedAlbumsScan). Albums that fail
+    are retried only after --retry-after hours. Use --interval to keep it running."""
+    from . import lidarr
+    download_dir = os.path.abspath(download_dir or os.path.join(DEFAULT_OUT, ".lidarr"))
+    os.makedirs(download_dir, exist_ok=True)
+    while True:
+        try:
+            stats = asyncio.run(_soularr_cycle(
+                lidarr_url, api_key, download_dir, remote_dir, service, country, jobs,
+                hidden, to_fmt, bitrate, cutoff, limit, retry_after, dry_run,
+                import_timeout))
+        except lidarr.LidarrError as e:
+            click.secho(f"✗ {e}", fg="red")
+            if not interval:
+                raise click.exceptions.Exit(1)
+        else:
+            click.secho(
+                f"\nCycle done — wanted {stats['wanted']}, tried {stats['tried']}, "
+                f"imported {stats['imported']}, failed {stats['failed']}, "
+                f"cooling down {stats['skipped']}", fg="cyan")
+            if not interval:
+                if stats["failed"]:
+                    raise click.exceptions.Exit(1)
+                return
+        click.echo(f"Next cycle in {interval} min (Ctrl+C to stop).")
+        try:
+            time.sleep(interval * 60)
+        except KeyboardInterrupt:
+            return
+
+
 # --- config -----------------------------------------------------------------
 
 @cli.command("config")

@@ -1117,6 +1117,67 @@ _version = _runner.invoke(_cli.cli, ["--version"])
 check("cli: source version matches release metadata",
       _version.exit_code == 0 and "1.4.3" in _version.output)  # x-release-please-version
 
+# --- Lidarr / Soularr-style integration ---
+import json as _json
+import os as _os2
+import tempfile as _tmp2
+import httpx as _httpx
+from lucidadl import lidarr as _ld
+
+check("lidarr: album query", _ld.album_query(
+    {"title": "Discovery", "artist": {"artistName": "Daft Punk"}}) == "Daft Punk - Discovery")
+check("lidarr: album query needs artist", _ld.album_query({"title": "X"}) == "")
+check("lidarr: map_path identity", _ld.map_path("/a/b", "/a", None) == "/a/b")
+check("lidarr: map_path remaps", _ld.map_path("/dl/x/y", "/dl", "/data/dl") == "/data/dl/x/y")
+check("lidarr: map_path root", _ld.map_path("/dl", "/dl", "/data/dl") == "/data/dl")
+with _tmp2.TemporaryDirectory() as _d:
+    _st = _ld.AttemptState(_os2.path.join(_d, "s.json"))
+    check("lidarr: new album is tried", _st.should_try(1, 24))
+    _st.record(1, "q", "no-download", now=1000.0)
+    check("lidarr: cooldown blocks", not _st.should_try(1, 24, now=1000.0 + 3600))
+    check("lidarr: cooldown expires", _st.should_try(1, 24, now=1000.0 + 25 * 3600))
+    check("lidarr: state persists",
+          not _ld.AttemptState(_os2.path.join(_d, "s.json")).should_try(
+              1, 24, now=1000.0 + 3600))
+    _stage = _os2.path.join(_d, "stage", "Artists", "A", "Alb")
+    _os2.makedirs(_stage)
+    open(_os2.path.join(_stage, "01.flac"), "w").close()
+    check("lidarr: audio_dirs finds album", _ld.audio_dirs(_os2.path.join(_d, "stage")) == [_stage])
+    _ld.prune_empty(_os2.path.join(_d, "stage"))
+    check("lidarr: prune keeps audio", _os2.path.isdir(_stage))
+    _os2.remove(_os2.path.join(_stage, "01.flac"))
+    _ld.prune_empty(_os2.path.join(_d, "stage"))
+    check("lidarr: prune removes empty tree", not _os2.path.exists(_os2.path.join(_d, "stage")))
+
+
+def _fake_lidarr(request):
+    if request.url.path.endswith("/wanted/missing"):
+        page = int(request.url.params["page"])
+        rec = [{"id": page, "title": f"T{page}", "artist": {"artistName": "A"}}]
+        return _httpx.Response(200, json={"records": rec, "totalRecords": 2})
+    if request.url.path.endswith("/command") and request.method == "POST":
+        body = _json.loads(request.content)
+        assert body["name"] == "DownloadedAlbumsScan" and body["path"] == "/x"
+        return _httpx.Response(201, json={"id": 7, "status": "queued"})
+    if request.url.path.endswith("/command/7"):
+        return _httpx.Response(200, json={"id": 7, "status": "completed"})
+    return _httpx.Response(404)
+
+
+async def _lidarr_flow():
+    c = _ld.LidarrClient("http://lidarr", "key")
+    c.http._transport = _httpx.MockTransport(_fake_lidarr)
+    try:
+        albums = await c.wanted()
+        status = await c.import_folder("/x", poll=0.01)
+        return len(albums), status
+    finally:
+        await c.aclose()
+
+
+check("lidarr: paged wanted + import scan", _aio.run(_lidarr_flow()) == (2, "completed"))
+check("cli: soularr command registered", "soularr" in _cli.cli.commands)
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S): {fails}")
