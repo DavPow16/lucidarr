@@ -1148,6 +1148,24 @@ with _tmp2.TemporaryDirectory() as _d:
     _os2.remove(_os2.path.join(_stage, "01.flac"))
     _ld.prune_empty(_os2.path.join(_d, "stage"))
     check("lidarr: prune removes empty tree", not _os2.path.exists(_os2.path.join(_d, "stage")))
+    # consolidate: nested files (+ art, + a name clash) end up in one release-named folder
+    _st3 = _os2.path.join(_d, "st3")
+    for _sub in ("Artists/A/B", "Artists/A/C"):
+        _os2.makedirs(_os2.path.join(_st3, _sub))
+    open(_os2.path.join(_st3, "Artists/A/B/01.flac"), "w").close()
+    open(_os2.path.join(_st3, "Artists/A/B/cover.jpg"), "w").close()
+    open(_os2.path.join(_st3, "Artists/A/C/01.flac"), "w").close()
+    _tgt = _ld.consolidate(_st3, "A - Alb")
+    check("lidarr: consolidate gathers files into 'Artist - Album'",
+          _os2.path.basename(_tgt) == "A - Alb"
+          and sorted(_os2.listdir(_tgt)) == ["01 (1).flac", "01.flac", "cover.jpg"]
+          and not _os2.path.exists(_os2.path.join(_st3, "Artists")))
+    check("lidarr: consolidate is idempotent", _ld.consolidate(_st3, "A - Alb") == _tgt
+          and len(_os2.listdir(_tgt)) == 3)
+    for _f in ("01.flac", "01 (1).flac"):
+        _os2.remove(_os2.path.join(_tgt, _f))
+    _ld.prune_empty(_st3)
+    check("lidarr: prune clears leftover art once audio is gone", not _os2.path.exists(_st3))
 
 
 def _fake_lidarr(request):
@@ -1270,8 +1288,8 @@ def _cycle(albums, run_results, **over):
 _alb = lambda i: {"id": i, "title": f"T{i}", "artist": {"artistName": "A"}}
 _stats, _fl, _calls, _st, _ = _cycle([_alb(1), _alb(2)], [(3, 0), (3, 0)])
 check("cycle: downloads then imports each album", _stats["imported"] == 2 and len(_fl.imports) == 2)
-check("cycle: Lidarr is asked to scan the album folder, not the staging root",
-      all(p.endswith("/Artists/A/B") for p in _fl.imports))
+check("cycle: Lidarr scans one folder named like the release ('Artist - Album')",
+      [_os2.path.basename(p) for p in _fl.imports] == ["A - T1", "A - T2"])
 _stats, _fl, _calls, _st, _ = _cycle([_alb(i) for i in range(1, 6)], [], remove_on_failure=True)
 check("cycle: outage aborts after 3 failures, records nothing, unmonitors nothing",
       len(_calls) == 3 and not _st.data and not _fl.unmonitored)

@@ -18,6 +18,7 @@ import asyncio
 import configparser
 import json
 import os
+import shutil
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -209,14 +210,40 @@ def audio_dirs(root: str) -> List[str]:
 
 
 def prune_empty(root: str) -> None:
-    """Delete ``root`` if it holds no audio any more (Lidarr moved it), else keep it."""
-    if not os.path.isdir(root) or audio_dirs(root):
-        return
-    for folder, _dirs, _files in os.walk(root, topdown=False):
-        try:
-            os.rmdir(folder)
-        except OSError:
-            pass
+    """Remove ``root`` once it holds no audio any more (Lidarr moved it). Leftover art or
+    other non-audio files go with it; a folder that still has audio is never touched."""
+    if os.path.isdir(root) and not audio_dirs(root):
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def consolidate(stage: str, folder_name: str) -> str:
+    """Gather the album's files into ONE folder named like a release ("Artist - Album").
+
+    Lidarr identifies the artist of a scanned folder from the folder *name*, so the
+    folder must carry Lidarr's own artist/album spelling. Files from every audio
+    folder under ``stage`` (tracks plus cover art) are moved in; the emptied folders
+    are removed. Returns the path to scan."""
+    target = os.path.join(stage, folder_name)
+    os.makedirs(target, exist_ok=True)
+    for folder in audio_dirs(stage):
+        if os.path.abspath(folder) == os.path.abspath(target):
+            continue
+        for name in sorted(os.listdir(folder)):
+            src = os.path.join(folder, name)
+            if not os.path.isfile(src):
+                continue
+            dst, n = os.path.join(target, name), 1
+            while os.path.exists(dst):
+                base, ext = os.path.splitext(name)
+                dst, n = os.path.join(target, f"{base} ({n}){ext}"), n + 1
+            shutil.move(src, dst)
+    for folder, _dirs, _files in os.walk(stage, topdown=False):
+        if os.path.abspath(folder) not in (os.path.abspath(stage), os.path.abspath(target)):
+            try:
+                os.rmdir(folder)
+            except OSError:
+                pass
+    return target
 
 
 class AttemptState:
