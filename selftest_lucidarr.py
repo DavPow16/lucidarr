@@ -723,9 +723,14 @@ _lp = _web._log_page("[ERROR|x|L1] <script>x</script>\n[WARNING|x|L2] w\nplain")
 check("web log: html is escaped and errors/warnings are marked",
       "<script>x</script>" not in _lp and "&lt;script&gt;" in _lp
       and '<span class="e">' in _lp and '<span class="w">' in _lp)
+with _tmp2.TemporaryDirectory() as _td9:
+    _cp9 = _os2.path.join(_td9, "clearance.json")   # own file: don't depend on the machine's
+    with open(_cp9, "w") as _f9:
+        _json.dump({"cf_clearance": "x", "user_agent": "ua", "ts": 0}, _f9)
+    with _p2.object(_sess, "CLEARANCE_PATH", _cp9):
+        _pg9 = _web._page()
 check("web page: no solver -> 'updated', form shown, log link, no fallback <details>",
-      b"updated" in _web._page() and b"View lucidarr log" in _web._page()
-      and b"<details>" not in _web._page())
+      b"updated" in _pg9 and b"View lucidarr log" in _pg9 and b"<details>" not in _pg9)
 _sp = _web._page(solver="http://s:8191").decode()
 check("web page: with a solver it says so and tucks the upload form into <details>",
       "cleared automatically by the solver at http://s:8191" in _sp and "<details>" in _sp)
