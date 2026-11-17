@@ -36,6 +36,13 @@ bitrate =
 hidden = False
 # Maximum seconds to wait for Lidarr's import scan, to prevent infinite hangs.
 import_timeout = 900
+# Optional: a FlareSolverr or Byparr URL (e.g. http://192.168.1.20:8191) that clears
+# Cloudflare for lucida.to. It must reach the internet from the same public IP as this
+# host. When set, lucidarr asks it for the cf_clearance + user agent whenever it needs a
+# fresh one, instead of opening a browser. Byparr is known to pass; FlareSolverr timed out.
+solver_url =
+# Maximum seconds to let the solver work on one challenge.
+solver_timeout = 90
 
 # Soularr's [Release Settings] (accepted_countries/formats, multi-disc) have no
 # equivalent: lucida.to serves a single release per album.

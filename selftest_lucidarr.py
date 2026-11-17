@@ -658,6 +658,55 @@ with _p2.object(_tok.sys, "argv", ["t", "--push", "http://127.0.0.1:1", "--passw
         _p2.object(_tok, "fetch_clearance", lambda *a, **k: (_ for _ in ()).throw(AssertionError("browser opened before reachability check"))):
     check("token script: a bad --push address fails before any browser starts", _tok.main() == 1)
 
+# solver (FlareSolverr/Byparr): clearance + UA from a /v1 request.get answer
+import httpx as _hx3
+from lucidadl import solver as _solver
+from lucidadl import session as _sess3
+_real_ac = _hx3.AsyncClient
+def _solver_client(reply):
+    def factory(*a, **k):
+        k["transport"] = _hx3.MockTransport(reply)
+        return _real_ac(*a, **k)
+    return factory
+_seen = {}
+def _ok_reply(request):
+    _seen["url"] = str(request.url)
+    _seen["body"] = _json.loads(request.content)
+    return _hx3.Response(200, json={"status": "ok", "solution": {
+        "userAgent": "Firefox/159", "cookies": [{"name": "x", "value": "1"},
+                                               {"name": "cf_clearance", "value": "cfTOK"}]}})
+with _p2.object(_hx3, "AsyncClient", _solver_client(_ok_reply)):
+    check("solver: returns cf_clearance and the solver's user agent",
+          _aio.run(_solver.solve("http://s:8191")) == ("cfTOK", "Firefox/159")
+          and _seen["url"] == "http://s:8191/v1" and _seen["body"]["cmd"] == "request.get"
+          and _seen["body"]["maxTimeout"] == 90000 and _seen["body"]["url"] == "https://lucida.to")
+def _err_reply(request):
+    return _hx3.Response(200, json={"status": "error", "message": "Timeout after 60.0 seconds."})
+def _html_reply(request):
+    return _hx3.Response(500, text="Internal Server Error")
+for _name, _rep in (("error status", _err_reply), ("non-JSON 500", _html_reply)):
+    with _p2.object(_hx3, "AsyncClient", _solver_client(_rep)):
+        try:
+            _aio.run(_solver.solve("http://s:8191/v1")); _raised = False
+        except _solver.SolverError:
+            _raised = True
+    check(f"solver: {_name} raises SolverError", _raised)
+# install(): cli.acquire_clearance now saves what the solver returned
+_orig_acq = _cli.acquire_clearance
+with _p2.object(_hx3, "AsyncClient", _solver_client(_ok_reply)), \
+        _p2.object(_sess3, "CLEARANCE_PATH", _os2.path.join(_td, "solver.json")):
+    try:
+        _solver.install("http://s:8191", 90)
+        _got = _aio.run(_cli.acquire_clearance(hidden=True))
+        check("solver: install() routes acquire_clearance through the solver and saves it",
+              _got == ("cfTOK", "Firefox/159") and _sess3.load_clearance() == ("cfTOK", "Firefox/159"))
+    finally:
+        _cli.acquire_clearance = _orig_acq
+_cfg = _ld.resolve(_ld.load_config(None), {"solver_url": " http://s:8191 "})
+check("config: solver_url is trimmed, default timeout 90, default empty",
+      _cfg.solver_url == "http://s:8191" and _cfg.solver_timeout == 90.0
+      and _ld.resolve(_ld.load_config(None), {}).solver_url == "")
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S): {fails}")

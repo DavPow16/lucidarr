@@ -13,6 +13,7 @@ Fork-only files (upstream never touches these, so they cannot conflict):
 | `lucidadl/lidarr.py` | Lidarr API client, `config.ini`, retry state, staging helpers |
 | `lucidadl/lucidarr_cli.py` | `lucida lucidarr` (alias `soularr`), `lucida web`, `lucida push-clearance` |
 | `lucidadl/lucidarr_ext.py` | search tweaks: ellipsis/curly quotes, wrong-album title guard |
+| `lucidadl/solver.py` | optional FlareSolverr/Byparr clearance source (`[Lucida] solver_url`); swaps `cli.acquire_clearance` at runtime, no upstream edit |
 | `lucidadl/webui.py`, `lucidadl/assets/` | the clearance upload page and its logo |
 | `scripts/lucida_token.py` | standalone clearance fetcher (no lucidadl needed) |
 | `scripts/sync-upstream.sh`, `scripts/slim-tree.sh` | merge helper, working-tree slimmer |

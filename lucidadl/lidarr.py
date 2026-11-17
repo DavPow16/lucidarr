@@ -48,7 +48,7 @@ DEFAULTS: Dict[str, Dict[str, str]] = {
                "download_dir": "", "disable_sync": "False", "import_method": "auto"},
     "Lucida": {"download_dir": "", "service": "qobuz", "country": "", "jobs": "3",
                "convert_to": "", "bitrate": "", "hidden": "False",
-               "import_timeout": "900"},
+               "import_timeout": "900", "solver_url": "", "solver_timeout": "90"},
     "Search Settings": {"search_source": "missing", "search_type": "incrementing_page",
                         "number_of_albums_to_grab": "10",
                         "remove_wanted_on_failure": "False",
@@ -99,6 +99,8 @@ class Settings:
     bitrate: Optional[str]
     hidden: bool
     import_timeout: int
+    solver_url: str
+    solver_timeout: float
     cutoff: bool
     search_type: str
     limit: int
@@ -157,6 +159,8 @@ def _resolve(cp: configparser.ConfigParser, o: Dict[str, Any]) -> Settings:
         bitrate=pick("bitrate", "Lucida", "bitrate") or None,
         hidden=pick("hidden", "Lucida", "hidden", boolean),
         import_timeout=pick("import_timeout", "Lucida", "import_timeout", int),
+        solver_url=pick("solver_url", "Lucida", "solver_url").strip(),
+        solver_timeout=pick("solver_timeout", "Lucida", "solver_timeout", float),
         cutoff=source == "cutoff_unmet",
         search_type=stype,
         limit=pick("limit", "Search Settings", "number_of_albums_to_grab", int),

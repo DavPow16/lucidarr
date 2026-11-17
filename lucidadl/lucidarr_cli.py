@@ -241,6 +241,8 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
               help="Override [Lucida] convert_to.")
 @click.option("--bitrate", default=None, help="Override [Lucida] bitrate.")
 @click.option("--hidden/--visible", "hidden", default=None)
+@click.option("--solver-url", "solver_url", envvar="LUCIDARR_SOLVER_URL", default=None,
+              help="Override [Lucida] solver_url (FlareSolverr/Byparr).")
 def lucidarr_cmd(config_path, **opts):
     """Lidarr integration, Soularr-style: fetch Lidarr's wanted albums from lucida.to.
 
@@ -271,6 +273,10 @@ def lucidarr_cmd(config_path, **opts):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     log = logging.getLogger("lucidarr")
     log.info("Config: %s", path or "(defaults)")
+    if cfg.solver_url:
+        from . import solver
+        solver.install(cfg.solver_url, cfg.solver_timeout)
+        log.info("Cloudflare clearance via solver at %s", cfg.solver_url)
     cfg.download_dir = os.path.abspath(
         cfg.download_dir or os.path.join(_base.DEFAULT_OUT, ".lidarr"))
     try:
