@@ -707,6 +707,49 @@ check("config: solver_url is trimmed, default timeout 90, default empty",
       _cfg.solver_url == "http://s:8191" and _cfg.solver_timeout == 90.0
       and _ld.resolve(_ld.load_config(None), {}).solver_url == "")
 
+# web: log view (Basic auth, tail, escaping) and solver-aware wording
+import base64 as _b64
+import threading as _th4
+import urllib.request as _ur4
+import urllib.error as _ue4
+from lucidadl import lidarr as _ld4
+_logf = _os2.path.join(_td, "lucidarr.log")
+open(_logf, "w", encoding="utf-8").write("".join(f"line {i}\n" for i in range(600))
+                                         + "[ERROR|x|L1] boom <b>tag</b>\n")
+_t = _web.tail_log(_logf, lines=5)
+check("web log: tail returns only the last lines", _t.splitlines()[0] == "line 596" and len(_t.splitlines()) == 5)
+check("web log: a missing file is an empty tail", _web.tail_log(_os2.path.join(_td, "nope.log")) == "")
+_lp = _web._log_page("[ERROR|x|L1] <script>x</script>\n[WARNING|x|L2] w\nplain").decode()
+check("web log: html is escaped and errors/warnings are marked",
+      "<script>x</script>" not in _lp and "&lt;script&gt;" in _lp
+      and '<span class="e">' in _lp and '<span class="w">' in _lp)
+check("web page: no solver -> 'updated', form shown, log link, no fallback <details>",
+      b"updated" in _web._page() and b"View lucidarr log" in _web._page()
+      and b"<details>" not in _web._page())
+_sp = _web._page(solver="http://s:8191").decode()
+check("web page: with a solver it says so and tucks the upload form into <details>",
+      "cleared automatically by the solver at http://s:8191" in _sp and "<details>" in _sp)
+with _p2.object(_ld4, "LOG_PATH", _logf), _p2.object(_web.time, "sleep", lambda s: None):
+    _srv5 = _web.make_server("127.0.0.1", 0, "pw")
+    _th4.Thread(target=_srv5.serve_forever, daemon=True).start()
+    _u5 = f"http://127.0.0.1:{_srv5.server_address[1]}/log"
+    try:
+        try:
+            _ur4.urlopen(_u5); _c0 = 200
+        except _ue4.HTTPError as e:
+            _c0 = e.code; _hdr = e.headers.get("WWW-Authenticate", "")
+        check("web log: no credentials -> 401 with a Basic challenge", _c0 == 401 and "Basic" in _hdr)
+        def _get(pw):
+            rq = _ur4.Request(_u5, headers={"Authorization": "Basic " + _b64.b64encode(f"u:{pw}".encode()).decode()})
+            try:
+                return _ur4.urlopen(rq).status
+            except _ue4.HTTPError as e:
+                return e.code
+        check("web log: wrong password -> 401", _get("bad") == 401)
+        check("web log: right password -> 200", _get("pw") == 200)
+    finally:
+        _srv5.shutdown()
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S): {fails}")

@@ -42,6 +42,7 @@ class LidarrError(Exception):
 DEFAULT_LOG_FORMAT = "[%(levelname)s|%(module)s|L%(lineno)d] %(asctime)s: %(message)s"
 DEFAULT_DATEFMT = "%Y-%m-%dT%H:%M:%S%z"
 FAILURE_LIST_PATH = str(paths.DATA_DIR / "failure_list.txt")
+LOG_PATH = str(paths.DATA_DIR / "lucidarr.log")  # read by the web page
 
 DEFAULTS: Dict[str, Dict[str, str]] = {
     "Lidarr": {"api_key": "", "host_url": "http://localhost:8686",

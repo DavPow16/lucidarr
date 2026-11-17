@@ -269,6 +269,15 @@ def lucidarr_cmd(config_path, **opts):
                             format=cfg.log_format, datefmt=cfg.log_datefmt, force=True)
     except Exception:
         logging.basicConfig(level=logging.INFO, force=True)
+    try:  # also keep a small rotating file for the web page's log view
+        from logging.handlers import RotatingFileHandler
+        os.makedirs(os.path.dirname(lidarr.LOG_PATH), exist_ok=True)
+        fh = RotatingFileHandler(lidarr.LOG_PATH, maxBytes=1_000_000, backupCount=2,
+                                 encoding="utf-8")
+        fh.setFormatter(logging.Formatter(cfg.log_format, cfg.log_datefmt))
+        logging.getLogger().addHandler(fh)
+    except Exception:
+        pass
     for noisy in ("httpx", "httpcore"):  # one INFO line per request floods the journal
         logging.getLogger(noisy).setLevel(logging.WARNING)
     log = logging.getLogger("lucidarr")
@@ -343,7 +352,8 @@ def web_cmd(config_path, host, port, password):
         click.secho("✗ Set [Web] password in config.ini (or LUCIDARR_WEB_PASSWORD) "
                     "before starting the web page.", fg="red")
         raise click.exceptions.Exit(1)
-    server = webui.make_server(host, port, password)
+    solver = (os.environ.get("LUCIDARR_SOLVER_URL") or cp.get("Lucida", "solver_url")).strip()
+    server = webui.make_server(host, port, password, solver)
     click.echo(f"Clearance page on http://{host}:{port}/  (Ctrl+C to stop)")
     try:
         server.serve_forever()
