@@ -32,8 +32,10 @@ will look familiar.
   can resolve (today mostly Amazon Music; upstream reports Qobuz as unreliable). Older,
   niche and some major-label albums simply aren't there and are skipped. Newer releases
   work best. Running both side by side is reasonable.
-- **Not hands-off forever.** Lucida sits behind Cloudflare, so it needs a token (a cookie
-  from a real browser) that expires every so often. See [The token](#the-token).
+- **Not hands-off without a solver.** Lucida sits behind Cloudflare, so it needs a token (a
+  cookie from a real browser) that expires every so often. Point lucidarr at a
+  [Byparr or FlareSolverr](#automatic-token-byparr--flaresolverr) service and it fetches
+  fresh ones itself; otherwise see [The token](#the-token).
 - **Lightly tested.** Developed against Lidarr 3.1.x and a few dozen albums. Expect rough
   edges and please open an issue when you find one.
 
@@ -42,7 +44,8 @@ will look familiar.
 - Lidarr (API v1; tested on 3.1.6) and its API key
 - Python 3.10+
 - A folder that both lucidarr and Lidarr can read and write (it is used for staging)
-- A machine with a desktop, to get the Cloudflare token (the script installs its own Chromium)
+- A way to get the Cloudflare token: a running [Byparr or FlareSolverr](#automatic-token-byparr--flaresolverr)
+  (recommended), or a machine with a desktop (the script installs its own Chromium)
 
 ## Quick start
 
@@ -64,7 +67,30 @@ lucida lucidarr --interval 3600                   # keep running, a cycle per ho
 If Lidarr sees the staging folder at a different path (Docker, NAS), set
 `[Lidarr] download_dir` to that path and `[Lucida] download_dir` to the local one.
 
-## The token
+## Automatic token: Byparr / FlareSolverr
+
+If you already run [Byparr](https://github.com/ThePhaseless/Byparr) or
+[FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) (for Prowlarr, say), lucidarr
+can use it to clear Cloudflare and refresh the token whenever it expires. No browser and no
+desktop needed. Both speak the same API:
+
+```ini
+[Lucida]
+solver_url = http://192.168.1.20:8191     # Byparr/FlareSolverr; empty = browser/manual token
+solver_timeout = 90                       # seconds to let it work on one challenge
+```
+
+(`LUCIDARR_SOLVER_URL` or `--solver-url` override it, and the `lucida web` page uses it too.)
+
+- **Same network.** The cookie is tied to your public IP and the solver's user agent, so the
+  solver must reach lucida.to from the same IP as lucidarr. lucidarr saves the cookie and the
+  user agent together.
+- **Byparr worked for me; FlareSolverr timed out** on lucida.to in the author's setup.
+  Success depends on the solver version and Cloudflare's current mood, so try both if one fails.
+- If the solver can't clear it, a cycle still fails fast with `lucida.to access is not
+  ready`; fall back to the manual route below.
+
+## The token (manual)
 
 Downloads need a `cf_clearance` cookie that only a real browser can obtain.
 `scripts/lucida_token.py` fetches it **without lucidadl installed**. On a machine without
@@ -97,7 +123,7 @@ one and carry on.
 | Section | Keys |
 |---|---|
 | `[Lidarr]` | `api_key`, `host_url`, `download_dir` (staging folder *as Lidarr sees it*), `disable_sync`, `import_method` (`auto`, `scan`, `manual`) |
-| `[Lucida]` (replaces Soularr's `[Slskd]`) | `download_dir` (local staging), `service`, `country`, `jobs`, `convert_to`, `bitrate`, `hidden`, `import_timeout` |
+| `[Lucida]` (replaces Soularr's `[Slskd]`) | `download_dir` (local staging), `service`, `country`, `jobs`, `convert_to`, `bitrate`, `hidden`, `import_timeout`, `solver_url`, `solver_timeout` |
 | `[Search Settings]` | `search_source` (`missing`, `cutoff_unmet`), `search_type` (`all`, `first_page`, `incrementing_page`), `number_of_albums_to_grab`, `remove_wanted_on_failure`, `retry_after_hours`, `title_blacklist` |
 | `[Web]` | `host`, `port`, `password` |
 | `[Logging]` | `level`, `format`, `datefmt` |
