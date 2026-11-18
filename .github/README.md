@@ -124,7 +124,7 @@ one and carry on.
 |---|---|
 | `[Lidarr]` | `api_key`, `host_url`, `download_dir` (staging folder *as Lidarr sees it*), `disable_sync`, `import_method` (`auto`, `scan`, `manual`) |
 | `[Lucida]` (replaces Soularr's `[Slskd]`) | `download_dir` (local staging), `service`, `country`, `jobs`, `convert_to`, `bitrate`, `hidden`, `import_timeout`, `solver_url`, `solver_timeout` |
-| `[Search Settings]` | `search_source` (`missing`, `cutoff_unmet`), `search_type` (`all`, `first_page`, `incrementing_page`), `number_of_albums_to_grab`, `remove_wanted_on_failure`, `retry_after_hours`, `title_blacklist` |
+| `[Search Settings]` | `search_source` (`missing`, `cutoff_unmet`), `search_type` (`all`, `first_page`, `incrementing_page`), `number_of_albums_to_grab`, `remove_wanted_on_failure`, `retry_after_hours`, `interval` (seconds between cycles, 0 = run once), `title_blacklist` |
 | `[Web]` | `host`, `port`, `password` |
 | `[Logging]` | `level`, `format`, `datefmt` |
 

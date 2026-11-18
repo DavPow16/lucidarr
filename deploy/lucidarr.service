@@ -5,14 +5,12 @@ Wants=network-online.target
 
 [Service]
 User=@USER@
-Environment=SCRIPT_INTERVAL=3600
 EnvironmentFile=-/etc/lucidarr.env
 Environment=LUCIDARR_CONFIG=/etc/lucidarr/config.ini
 Environment=LUCIDADL_HOME=/var/lib/lucidarr/data
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/lucidarr/.pw
 # @XVFB@ is "xvfb-run -a " when the server has its own browser (WITH_BROWSER=1), else empty.
-ExecStart=@XVFB@/opt/lucidarr/.venv/bin/lucida lucidarr \
-  --interval ${SCRIPT_INTERVAL}
+ExecStart=@XVFB@/opt/lucidarr/.venv/bin/lucida lucidarr
 Restart=on-failure
 RestartSec=300
 # Staging files must be group-accessible so Lidarr can move them.

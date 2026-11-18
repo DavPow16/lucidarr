@@ -53,7 +53,8 @@ DEFAULTS: Dict[str, Dict[str, str]] = {
     "Search Settings": {"search_source": "missing", "search_type": "incrementing_page",
                         "number_of_albums_to_grab": "10",
                         "remove_wanted_on_failure": "False",
-                        "retry_after_hours": "24", "title_blacklist": ""},
+                        "retry_after_hours": "24", "title_blacklist": "",
+                        "interval": "0"},
     "Web": {"host": "0.0.0.0", "port": "8787", "password": ""},
     "Logging": {"level": "INFO", "format": DEFAULT_LOG_FORMAT,
                 "datefmt": DEFAULT_DATEFMT},
@@ -120,9 +121,9 @@ def resolve(cp: configparser.ConfigParser, o: Dict[str, Any]) -> Settings:
         s = _resolve(cp, o)
     except (ValueError, TypeError) as e:
         raise LidarrError(f"Invalid value in config/options: {e}") from e
-    if s.limit < 1 or not 1 <= s.jobs <= 100 or s.import_timeout < 1 or s.retry_after < 0:
+    if s.limit < 1 or not 1 <= s.jobs <= 100 or s.import_timeout < 1 or s.retry_after < 0 or s.interval < 0:
         raise LidarrError("number_of_albums_to_grab and import_timeout must be >= 1, "
-                          "jobs 1-100, retry_after_hours >= 0.")
+                          "jobs 1-100, retry_after_hours >= 0, interval >= 0.")
     return s
 
 
@@ -170,7 +171,7 @@ def _resolve(cp: configparser.ConfigParser, o: Dict[str, Any]) -> Settings:
         retry_after=pick("retry_after", "Search Settings", "retry_after_hours", float),
         blacklist=[w.lower() for w in _csv(pick("blacklist", "Search Settings",
                                                 "title_blacklist"))],
-        interval=int(o.get("interval") or 0),
+        interval=pick("interval", "Search Settings", "interval", int),
         log_level=pick("log_level", "Logging", "level").upper(),
         log_format=pick("log_format", "Logging", "format"),
         log_datefmt=pick("log_datefmt", "Logging", "datefmt"),

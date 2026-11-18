@@ -229,8 +229,8 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
               help="Override number_of_albums_to_grab.")
 @click.option("--search-type", "search_type",
               type=click.Choice(["all", "first_page", "incrementing_page"]), default=None)
-@click.option("--interval", envvar="SCRIPT_INTERVAL", type=click.IntRange(0), default=0,
-              help="Seconds between cycles (env SCRIPT_INTERVAL); 0 = run once and exit.")
+@click.option("--interval", envvar="SCRIPT_INTERVAL", type=click.IntRange(0), default=None,
+              help="Seconds between cycles (env SCRIPT_INTERVAL, config [Search Settings] interval); 0 = run once and exit.")
 @click.option("--retry-after", type=float, default=None, help="Override retry_after_hours.")
 @click.option("--import-timeout", type=int, default=None, help="Override import_timeout.")
 @click.option("--dry-run", is_flag=True, help="List what would be fetched; download nothing.")
@@ -296,7 +296,6 @@ def lucidarr_cmd(config_path, **opts):
     except OSError as e:
         click.secho(f"✗ Staging folder {cfg.download_dir} is not writable: {e}", fg="red")
         raise click.exceptions.Exit(1)
-    cfg.interval = opts.get("interval") or 0
     while True:
         try:
             stats = asyncio.run(_lucidarr_cycle(cfg, dry_run))

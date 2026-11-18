@@ -54,7 +54,7 @@ cat <<MSG
 
 Installed (browser on this server: $([ "$WITH_BROWSER" = 1 ] && echo yes || echo no)). Next:
   1. Edit /etc/lucidarr/config.ini: [Lidarr] host_url + api_key, and [Web] password.
-     (interval: /etc/lucidarr.env)
+     (interval: interval in /etc/lucidarr/config.ini)
   2. Make sure $STAGING is writable by '$APP_USER' and readable/movable by Lidarr
      (same path in both LXCs, or set [Lidarr] download_dir in config.ini).
   3. Start the clearance page:  systemctl enable --now lucidarr-web

@@ -60,6 +60,9 @@ number_of_albums_to_grab = 10
 remove_wanted_on_failure = False
 # Hours before an album that failed is attempted again (0 = every run).
 retry_after_hours = 24
+# Seconds between cycles when running continuously (0 = run once and exit).
+# --interval / SCRIPT_INTERVAL override this.
+interval = 900
 # Skip wanted albums whose title contains any of these words. Case-insensitive.
 # e.g. title_blacklist = karaoke,tribute   (substring match on the album title)
 title_blacklist =
