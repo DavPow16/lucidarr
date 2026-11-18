@@ -116,13 +116,12 @@ async def _lucidarr_cycle(cfg, dry_run: bool = False) -> Dict[str, int]:
                     pending.append((aid, query, "no-download"))
                     if lucida_ok:
                         await settle()
-                    elif len(pending) >= 3:
-                        log.error("3 albums in a row returned nothing and none succeeded "
-                                  "this cycle; assuming a lucida.to/Cloudflare problem (an expired "
-                                  "clearance is the usual cause: upload a fresh one). "
-                                  "Aborting without recording them.")
-                        pending.clear()
-                        break
+                    elif len(pending) == 3:
+                        log.warning("3 albums in a row returned nothing and none succeeded "
+                                    "this cycle. If this keeps happening, lucida.to/Cloudflare "
+                                    "may be the problem (an expired clearance is the usual "
+                                    "cause: upload a fresh one). Continuing with the rest; "
+                                    "these are not unmonitored unless a later album succeeds.")
                     continue
                 lucida_ok = True
                 await settle()

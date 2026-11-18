@@ -261,8 +261,9 @@ check("cycle: downloads then imports each album", _stats["imported"] == 2 and le
 check("cycle: Lidarr scans one folder named like the release ('Artist - Album')",
       [_os2.path.basename(p) for p in _fl.imports] == ["A - T1", "A - T2"])
 _stats, _fl, _calls, _st, _ = _cycle([_alb(i) for i in range(1, 6)], [], remove_on_failure=True)
-check("cycle: outage aborts after 3 failures, records nothing, unmonitors nothing",
-      len(_calls) == 3 and not _st.data and not _fl.unmonitored)
+check("cycle: 3 failures warn but the cycle continues; nothing unmonitored without a success",
+      len(_calls) == 5 and sorted(_st.data) == ["1", "2", "3", "4", "5"]
+      and not _fl.unmonitored)
 _stats, _fl, _calls, _st, _ = _cycle([_alb(1), _alb(2)], [(0, 1), (3, 0)], remove_on_failure=True)
 check("cycle: failure before a success is settled and unmonitored once lucida proves OK",
       _fl.unmonitored == [1] and "1" in _st.data and _stats["imported"] == 1)
